@@ -1,4 +1,4 @@
-# Amazon-ec2-imagebuilder-secure-proxy
+# ec2-imagebuilder-secure-proxy
 
 CDK stack with an EC2 Image Builder component that installs a NGINX proxy which performs `wss://` to `tcp://` protocol conversion and JWT token validation.
 
