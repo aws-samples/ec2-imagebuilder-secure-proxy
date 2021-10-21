@@ -1,0 +1,64 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "@aws-cdk/core:newStyleStackSynthesis": "true",
+    "@aws-cdk/aws-apigateway:usagePlanKeyOrderInsensitiveId": true,
+    "@aws-cdk/core:enableStackNameDuplicates": "true",
+    "aws-cdk:enableDiffNoFail": "true",
+    "@aws-cdk/core:stackRelativeExports": "true",
+    "@aws-cdk/aws-ecr-assets:dockerIgnoreSupport": true,
+    "@aws-cdk/aws-secretsmanager:parseOwnedSecretName": true,
+    "@aws-cdk/aws-kms:defaultKeyPolicies": true,
+    "@aws-cdk/aws-s3:grantWriteWithoutAcl": true,
+    "@aws-cdk/aws-ecs-patterns:removeDefaultDesiredCount": true,
+    "@aws-cdk/aws-rds:lowercaseDbIdentifier": true,
+    "@aws-cdk/aws-efs:defaultEncryptionAtRest": true,
+    "@aws-cdk/aws-lambda:recognizeVersionProps": true,
+    "@aws-cdk/aws-cloudfront:defaultSecurityPolicyTLSv1.2_2021": true
+  },
+  "projectSettings": {
+    "vpc": {
+      "cidr": "192.168.0.0/16",
+      "subnets": {
+        "mask": 24
+      }
+    },
+    "elb": {
+      "namePrefix": "secure-proxy-elb"
+    },
+    "imagebuilder": {
+      "baseImageArn": "amazon-linux-2-x86/2021.4.29",
+      "ebsVolumeSize": 8,
+      "instanceTypes": [
+        "t2.medium"
+      ],
+      "version": "1.0.0",
+      "imageBuilderEmailAddress": "email@domian.com",
+      "extraTags": {
+        "imagePipeline": "AMIBuilder"
+      },
+      "distributionList": [
+        "account1",
+        "account2"
+      ]
+    },
+    "proxySettings": {
+      "jailBaseDir": "/nginx",
+      "proxyBaseDir": "/etc/nginx",
+      "proxyWorkerProcesses": "1",
+      "proxyWorkerConnections": "20",
+      "proxyCloudwatchLogGroup": "SecureProxy",
+      "keepaliveTimeout": "120",
+      "wssProxyBindPort": "10000",
+      "oAuthProxyBindPort": "11080",
+      "proxyPortScaleFactor": "1000",
+      "websockifyConnectTimeout": "30s",
+      "websockifyReadTimeout": "60s",
+      "websockifySendTimeout": "60s"
+    },
+    "mockServers": {
+      "tcpServerPort": "9000",
+      "oAuthServerPort": "10080"
+    }
+  }
+}

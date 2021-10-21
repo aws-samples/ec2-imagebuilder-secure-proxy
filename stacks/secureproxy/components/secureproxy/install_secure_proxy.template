@@ -1,0 +1,863 @@
+name: InstallSecureProxy
+description: this document installs the Secure Proxy for WSS-to-TCP proxying
+schemaVersion: 1.0
+
+phases:
+  - name: build
+    steps:
+      - name: InstallProxy
+        action: ExecuteBash
+        inputs:
+          commands:
+          - sudo yum -y update
+          - |
+            ########################################
+            # <Start> Global variable declarations #
+            ########################################
+
+            ########################################
+            # The variables below should be modified according to specifications
+            ########################################
+
+            # <START> of variables injected via SecureProxyStack
+
+            # Cloudwatch LogGroup
+            PROXY_CLOUDWATCH_LOGGROUP="@@PROXY_CLOUDWATCH_LOGGROUP@@"
+
+            # nginx configuration variables
+            JAIL_BASE_DIR="@@JAIL_BASE_DIR@@"
+            PROXY_BASE_DIR="@@PROXY_BASE_DIR@@"
+            PROXY_WORKER_PROCESSES=@@PROXY_WORKER_PROCESSES@@
+            PROXY_WORKER_CONNECTIONS=@@PROXY_WORKER_CONNECTIONS@@
+            KEEPALIVE_TIMEOUT="@@KEEPALIVE_TIMEOUT@@"
+
+            # proxy specific settings
+            WSS_PROXY_BIND_PORT="@@WSS_PROXY_BIND_PORT@@"
+            OAUTH_PROXY_BIND_PORT="@@OAUTH_PROXY_BIND_PORT@@"
+            PROXY_PORT_SCALE_FACTOR="@@PROXY_PORT_SCALE_FACTOR@@"
+            OAUTH_PROXY_BIND_PORT_SCALED=$((${OAUTH_PROXY_BIND_PORT} - ${PROXY_PORT_SCALE_FACTOR}))
+
+            # websockify module timeouts
+            WEBSOCKIFY_CONNECT_TIMEOUT="@@WEBSOCKIFY_CONNECT_TIMEOUT@@"
+            WEBSOCKIFY_READ_TIMEOUT="@@WEBSOCKIFY_READ_TIMEOUT@@"
+            WEBSOCKIFY_SEND_TIMEOUT="@@WEBSOCKIFY_SEND_TIMEOUT@@"
+
+            echo "########################################"
+            echo "Injected variables"
+            echo ""
+            echo "PROXY_CLOUDWATCH_LOGGROUP     = ${PROXY_CLOUDWATCH_LOGGROUP}"
+            echo "JAIL_BASE_DIR                 = ${JAIL_BASE_DIR}"
+            echo "PROXY_BASE_DIR                = ${PROXY_BASE_DIR}"
+            echo "PROXY_WORKER_PROCESSES        = ${PROXY_WORKER_PROCESSES}"
+            echo "PROXY_WORKER_CONNECTIONS      = ${PROXY_WORKER_CONNECTIONS}"
+            echo "KEEPALIVE_TIMEOUT             = ${KEEPALIVE_TIMEOUT}"
+            echo "WSS_PROXY_BIND_PORT           = ${WSS_PROXY_BIND_PORT}"
+            echo "OAUTH_PROXY_BIND_PORT         = ${OAUTH_PROXY_BIND_PORT}"
+            echo "PROXY_PORT_SCALE_FACTOR       = ${PROXY_PORT_SCALE_FACTOR}"
+            echo "OAUTH_PROXY_BIND_PORT_SCALED  = ${OAUTH_PROXY_BIND_PORT_SCALED}"
+            echo "WEBSOCKIFY_CONNECT_TIMEOUT    = ${WEBSOCKIFY_CONNECT_TIMEOUT}"
+            echo "WEBSOCKIFY_READ_TIMEOUT       = ${WEBSOCKIFY_READ_TIMEOUT}"
+            echo "WEBSOCKIFY_SEND_TIMEOUT       = ${WEBSOCKIFY_SEND_TIMEOUT}"
+            echo ""
+            echo "########################################"
+
+            # </END> of variables injected via SecureProxyStack
+
+            # implied variables based on the variables injected via SecureProxyStack
+            PROXY_CONF_FILE="${PROXY_BASE_DIR}/nginx.conf"
+            PROXY_CERTS_DIR="${PROXY_BASE_DIR}/certs"
+            PROXY_LOGS_DIR="${PROXY_BASE_DIR}/logs"
+            
+            ########################################
+            # BEWARE: HERE BE DRAGONS!!!!
+            # Only change the varibles below if you know what you are doing :)
+            ########################################
+            # nginx build variables
+            BUILD_DIR="/tmp"
+            NGINX_VERSION="1.18.0"
+            LUAJIT_VERSION="2.0.5"
+            LUA_NGINX_MODULE_VERSION="0.10.15"
+            LUA_DOWNLOAD_VERSION="5.1.5"
+            LUA_LIB_VERSION="5.1"
+            LUAROCKS_VERSION="3.3.1"
+            WEBSOCKIFY_NGINX_MODULE_VERSION="0.0.3"
+            LIB_JWT_VERSION="1.13.1"
+            NGINX_DEV_VERSION="0.3.1"
+            JANSON_VERSION="2.13.1"
+            CONFIG="\
+            --prefix=/etc/nginx \
+            --sbin-path=/usr/sbin/nginx \
+            --modules-path=/usr/lib/nginx/modules \
+            --conf-path=/etc/nginx/nginx.conf \
+            --error-log-path=/var/log/nginx/error.log \
+            --http-log-path=/var/log/nginx/access.log \
+            --pid-path=/var/run/nginx.pid \
+            --lock-path=/var/run/nginx.lock \
+            --http-client-body-temp-path=/var/cache/nginx/client_temp \
+            --http-proxy-temp-path=/var/cache/nginx/proxy_temp \
+            --http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp \
+            --http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp \
+            --http-scgi-temp-path=/var/cache/nginx/scgi_temp \
+            --user=nginx \
+            --group=nginx \
+            --with-http_ssl_module \
+            --with-http_realip_module \
+            --with-http_addition_module \
+            --with-http_sub_module \
+            --with-http_dav_module \
+            --with-http_flv_module \
+            --with-http_mp4_module \
+            --with-http_gunzip_module \
+            --with-http_gzip_static_module \
+            --with-http_random_index_module \
+            --with-http_secure_link_module \
+            --with-http_stub_status_module \
+            --with-http_auth_request_module \
+            --with-http_xslt_module=dynamic \
+            --with-http_image_filter_module=dynamic \
+            --with-http_geoip_module=dynamic \
+            --with-threads \
+            --with-stream \
+            --with-stream_ssl_module \
+            --with-stream_ssl_preread_module \
+            --with-stream_realip_module \
+            --with-stream_geoip_module=dynamic \
+            --with-http_slice_module \
+            --with-mail \
+            --with-mail_ssl_module \
+            --with-compat \
+            --with-file-aio \
+            --with-http_v2_module \
+            --add-module=${BUILD_DIR}/websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION} \
+            --add-module=${BUILD_DIR}/lua-nginx-module-${LUA_NGINX_MODULE_VERSION} \
+            --add-module=${BUILD_DIR}/ngx_devel_kit-${NGINX_DEV_VERSION}"
+            INSTALL_PKGS="gcc openssl-devel readline-devel libxslt-devel gd-devel geoip-devel git autoconf automake libtool"
+
+            # Systemd service for nginx
+            NGINX_SERVICE_FILE="/etc/systemd/system/nginx.service"
+
+            # Logrotate configuration
+            NGINX_PID_ERROR_LOGROTATE_FILE="/etc/logrotate.d/nginx-pid-error"
+            NGINX_HTTP_ERROR_LOGROTATE_FILE="/etc/logrotate.d/nginx-http-error"
+            NGINX_HTTP_ACCESS_LOGROTATE_FILE="/etc/logrotate.d/nginx-http-access"
+
+            # create an nginx environment variable file to supply runtime values to nginx
+            NGINX_ENVVARS_FILE="/nginx/etc/nginx/nginx_envvars.sh"
+            NGINX_ENVVARS_SERVICE_FILE="/etc/systemd/system/nginx-envvars.service"
+
+            # Cloudwatch log agent config file
+            CLOUDWATCH_AGENT_CONF="/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
+
+            ########################################
+            # </END> Global variable declarations  #
+            ########################################
+
+
+            ########################################
+            # </Start> Nginx installation          #
+            ########################################
+
+            # nginx install
+            echo "#########################################"
+            echo "Starting nginx installation ..."
+            echo "#########################################"
+            echo ""
+
+            echo ""
+            echo "## Creating nginx user and group ##"
+            sudo groupadd --system nginx
+            sudo useradd --system --home-dir /var/cache/nginx --shell /sbin/nologin -g nginx nginx
+
+            echo ""
+            echo "## Installing yum packages ##"
+            sudo yum update -y
+            sudo yum install -y ${INSTALL_PKGS}
+
+            # install nginx
+            echo ""
+            echo "## Grabbing and extracting nginx ##"
+            cd ${BUILD_DIR}
+            curl -fSL http://nginx.org/download/nginx-$NGINX_VERSION.tar.gz -o nginx.tar.gz
+            sudo mkdir -p /usr/src
+            sudo tar -zxC /usr/src -f nginx.tar.gz
+            sudo rm nginx.tar.gz
+
+            # grab the websockify-nginx-module
+            echo ""
+            echo "## Grabbing and extracting websockify-nginx-module ##"
+            cd ${BUILD_DIR}
+            curl -fSL https://github.com/tg123/websockify-nginx-module/archive/refs/tags/v${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz -o websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz
+            tar -xf websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz
+            rm websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz
+
+            # grab nginx devel kit
+            echo ""
+            echo "## Grabbing and extracting nginx devel kit ##"
+            cd ${BUILD_DIR}
+            curl -fSL https://github.com/vision5/ngx_devel_kit/archive/refs/tags/v${NGINX_DEV_VERSION}.tar.gz -o nginx-devel-kit-${NGINX_DEV_VERSION}.tar.gz
+            tar -xf nginx-devel-kit-${NGINX_DEV_VERSION}.tar.gz
+            rm nginx-devel-kit-${NGINX_DEV_VERSION}.tar.gz
+
+            # install jwt -- https://mostafa-asg.github.io/post/nginx-authentication-with-jwt/
+            echo ""
+            echo "## Grabbing and extracting jansson-${JANSON_VERSION} ##"
+            cd ${BUILD_DIR}
+            curl -fSL https://digip.org/jansson/releases/jansson-${JANSON_VERSION}.tar.gz -o jansson-${JANSON_VERSION}.tar.gz
+            tar -xf jansson-${JANSON_VERSION}.tar.gz
+            cd jansson-${JANSON_VERSION}
+            sudo ./configure
+            sudo make
+            sudo make install
+            sudo cp /usr/local/lib/pkgconfig/jansson.pc /usr/share/pkgconfig/jansson.pc
+            cd ${BUILD_DIR}
+            sudo rm jansson-${JANSON_VERSION}.tar.gz
+            sudo rm -fr jansson-${JANSON_VERSION}
+
+            echo ""
+            echo "## Grabbing and extracting libjwt-${LIB_JWT_VERSION} ##"
+            cd ${BUILD_DIR}
+            curl -fSL https://github.com/benmcollins/libjwt/archive/refs/tags/v${LIB_JWT_VERSION}.tar.gz -o libjwt-${LIB_JWT_VERSION}.tar.gz
+            tar -xf libjwt-${LIB_JWT_VERSION}.tar.gz
+            cd libjwt-${LIB_JWT_VERSION}
+            sudo autoreconf -i
+            sudo ./configure
+            sudo make
+            sudo make install
+
+            cd ${BUILD_DIR}
+            sudo rm libjwt-${LIB_JWT_VERSION}.tar.gz
+            sudo rm -fr libjwt-${LIB_JWT_VERSION}
+            # end jwt
+
+            # LuaJit & nginx-lua-module
+            echo ""
+            echo "## Grabbing and extracting LuaJIT ##"
+            cd ${BUILD_DIR}
+            curl -fSL https://github.com/openresty/luajit2/archive/v${LUAJIT_VERSION}.tar.gz  -o LuaJIT.tar.gz
+            tar zxf LuaJIT.tar.gz
+
+            echo ""
+            echo "## Grabbing and extracting lua-nginx-module ##"
+            curl -fSL https://github.com/openresty/lua-nginx-module/archive/v${LUA_NGINX_MODULE_VERSION}.tar.gz  -o lua-nginx-module.tar.gz
+            tar zxf lua-nginx-module.tar.gz
+
+            sudo rm -f LuaJIT.tar.gz lua-nginx-module.tar.gz
+
+            echo ""
+            echo "## Making luajit2-${LUAJIT_VERSION} ##"
+            sudo make -C ${BUILD_DIR}/luajit2-${LUAJIT_VERSION}
+            sudo make -C ${BUILD_DIR}/luajit2-${LUAJIT_VERSION} install
+            sudo cp /usr/local/lib/pkgconfig/luajit.pc /usr/share/pkgconfig/luajit.pc
+            sudo cp -r /usr/local/include/luajit-2.0/* /usr/include/
+
+            echo ""
+            echo "## Building nginx ##"
+            cd /usr/src/nginx-${NGINX_VERSION}
+            sudo ./configure $CONFIG --with-debug
+            sudo make -j$(getconf _NPROCESSORS_ONLN)
+            sudo mv objs/nginx objs/nginx-debug
+            sudo mv objs/ngx_http_xslt_filter_module.so objs/ngx_http_xslt_filter_module-debug.so
+            sudo mv objs/ngx_http_image_filter_module.so objs/ngx_http_image_filter_module-debug.so
+            sudo mv objs/ngx_http_geoip_module.so objs/ngx_http_geoip_module-debug.so
+            sudo mv objs/ngx_stream_geoip_module.so objs/ngx_stream_geoip_module-debug.so
+            sudo ./configure $CONFIG
+            sudo make -j$(getconf _NPROCESSORS_ONLN)
+            sudo make install
+
+            echo ""
+            echo "## Configuring nginx ##"
+            sudo rm -rf /etc/nginx/html/
+            sudo mkdir /etc/nginx/conf.d/
+            sudo mkdir -p /usr/share/nginx/html/
+            sudo install -m644 html/index.html /usr/share/nginx/html/
+            sudo install -m644 html/50x.html /usr/share/nginx/html/
+            sudo install -m755 objs/nginx-debug /usr/sbin/nginx-debug
+            sudo install -m755 objs/ngx_http_xslt_filter_module-debug.so /usr/lib/nginx/modules/ngx_http_xslt_filter_module-debug.so
+            sudo install -m755 objs/ngx_http_image_filter_module-debug.so /usr/lib/nginx/modules/ngx_http_image_filter_module-debug.so
+            sudo install -m755 objs/ngx_http_geoip_module-debug.so /usr/lib/nginx/modules/ngx_http_geoip_module-debug.so
+            sudo install -m755 objs/ngx_stream_geoip_module-debug.so /usr/lib/nginx/modules/ngx_stream_geoip_module-debug.so
+            sudo ln -s ../../usr/lib/nginx/modules /etc/nginx/modules
+            sudo strip /usr/sbin/nginx*
+            sudo strip /usr/lib/nginx/modules/*.so
+            sudo rm -rf /usr/src/nginx-$NGINX_VERSION
+
+            sudo rm -rf ${BUILD_DIR}/${WEBSOCKIFY_NGINX_MODULE_VERSION} 
+            sudo rm -rf ${BUILD_DIR}/lua-nginx-module-${LUA_NGINX_MODULE_VERSION} 
+            sudo rm -rf ${BUILD_DIR}/luajit2-${LUAJIT_VERSION}
+
+            echo ""
+            echo "## Building lua-${LUA_DOWNLOAD_VERSION} ##"
+            cd ${BUILD_DIR}
+            curl -R -O http://www.lua.org/ftp/lua-${LUA_DOWNLOAD_VERSION}.tar.gz
+            tar -zxf lua-${LUA_DOWNLOAD_VERSION}.tar.gz
+            cd lua-${LUA_DOWNLOAD_VERSION}
+            sudo make linux test
+            sudo make install
+
+            echo ""
+            echo "## Building luarocks-${LUAROCKS_VERSION} ##"
+            cd ${BUILD_DIR}
+            wget https://luarocks.org/releases/luarocks-${LUAROCKS_VERSION}.tar.gz
+            tar zxpf luarocks-${LUAROCKS_VERSION}.tar.gz
+            cd luarocks-${LUAROCKS_VERSION}
+            sudo ./configure --with-lua-include=/usr/local/include
+            sudo make
+            sudo make install
+
+            sudo rm -rf ${BUILD_DIR}/lua-${LUA_DOWNLOAD_VERSION}.tar.gz
+            sudo rm -rf ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}.tar.gz
+
+            echo ""
+            echo "## Installing luarocks rocks ##"
+            # install additional lua modules required by lua-resty-openidc
+            # https://github.com/zmartzone/lua-resty-openidc
+            sudo /usr/local/bin/luarocks install lua-cjson
+            sudo /usr/local/bin/luarocks install lua-resty-http
+            sudo /usr/local/bin/luarocks install lua-resty-jwt
+            sudo /usr/local/bin/luarocks install lua-resty-session
+            sudo /usr/local/bin/luarocks install lua-resty-string
+            sudo /usr/local/bin/luarocks install lua-resty-openidc
+            sudo /usr/local/bin/luarocks install lua-resty-core
+            sudo /usr/local/bin/luarocks install lua-resty-hmac
+            sudo cp -r ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}/lua_modules/lib/lua/${LUA_LIB_VERSION}/*.so /usr/local/lib/lua/${LUA_LIB_VERSION}/
+            sudo cp -r ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}/lua_modules/share/lua/${LUA_LIB_VERSION}/resty /usr/local/share/lua/${LUA_LIB_VERSION}/
+
+            echo ""
+            echo "## Copy libraries from /usr/local/lib to /lib64 ##"
+            sudo cp -f /usr/local/lib/* /lib64
+            sudo cp -rf /usr/local/lib/lua /lib64
+
+            echo ""
+            echo "## Package cleanup ##"
+            sudo yum remove -y ${INSTALL_PKGS}
+            sudo rm -fr ${BUILD_DIR}/lua-${LUA_DOWNLOAD_VERSION}
+            sudo rm -fr ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}
+
+            ########################################
+            # </END> Nginx installation            #
+            ########################################
+
+            ########################################
+            # <Start> Nginx configuration          #
+            ########################################
+
+            # nginx configuration
+            echo "#########################################"
+            echo "Starting nginx configfuration ..."
+            echo "#########################################"
+            echo ""
+
+            echo ""
+            echo "## Create configuration directories ##"
+            sudo mkdir -p "${PROXY_LOGS_DIR}"
+            sudo mkdir -p "${PROXY_CERTS_DIR}"
+
+            # create the nginx configuration file
+            echo "#########################################"
+            echo "Creating the nginx configuration file at: ${PROXY_CONF_FILE}"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng conf file
+            [ -f "${PROXY_CONF_FILE}" ] && sudo rm -f "${PROXY_CONF_FILE}"
+
+            sudo tee -a "${PROXY_CONF_FILE}" > /dev/null <<EOF
+            user  nginx;
+            worker_processes  ${PROXY_WORKER_PROCESSES};
+
+            error_log  ${PROXY_LOGS_DIR}/nginx-error.log debug;
+
+            events {
+              worker_connections  ${PROXY_WORKER_CONNECTIONS};
+            }
+
+            http {
+
+              log_format main 'remote_addr=\$remote_addr remote_user=\$remote_user timestamp=[\$time_local] request="\$request" '
+                              'status=\$status bytes_sent=\$body_bytes_sent http_ref="\$http_referer" http_ua="\$http_user_agent" '
+                              'req_time=\$request_time up_addr=\$upstream_addr up_con_time="\$upstream_connect_time" '
+                              'up_head_time="\$upstream_header_time" up_res_time="\$upstream_response_time" '
+                              'up_status=\$upstream_status up_bytes_s=\$upstream_bytes_sent up_bytes_r=\$upstream_bytes_received';
+
+              error_log ${PROXY_LOGS_DIR}/http-error.log debug;
+              access_log ${PROXY_LOGS_DIR}/http-access.log main;
+
+              sendfile on;
+
+              keepalive_timeout ${KEEPALIVE_TIMEOUT};
+
+              lua_package_path '~/lua/?.lua;/usr/local/share/lua/5.1/?.lua;;';
+
+              # cache for JWT verification results
+              lua_shared_dict introspection 10m;
+
+              server {
+                listen ${WSS_PROXY_BIND_PORT} ssl;
+
+                ssl_certificate     ${PROXY_CERTS_DIR}/servercert.pem;
+                ssl_certificate_key ${PROXY_CERTS_DIR}/serverkey.pem;
+                ssl_protocols       TLSv1 TLSv1.1 TLSv1.2;
+                ssl_ciphers         HIGH:!aNULL:!MD5;
+
+                location / { 
+                  # timeout values for the websockify connection
+                  websockify_connect_timeout ${WEBSOCKIFY_CONNECT_TIMEOUT};
+                  websockify_read_timeout ${WEBSOCKIFY_READ_TIMEOUT};
+                  websockify_send_timeout ${WEBSOCKIFY_SEND_TIMEOUT};
+
+                  # scale the port
+                  set_by_lua \$wss_scaled_port 'return ngx.var.server_port - ${PROXY_PORT_SCALE_FACTOR}';
+
+                  # jwt validation
+                  # see https://github.com/zmartzone/lua-resty-openidc
+                  access_by_lua '
+
+                    local opts = {
+                      discovery = "http://%%AWS_NLB_IP_ADDRESS%%:${OAUTH_PROXY_BIND_PORT_SCALED}/awsexample/.well-known/openid-configuration",
+                      jwk_expires_in = 24 * 60 * 60
+                    }
+
+                    local res, err = require("resty.openidc").bearer_jwt_verify(opts)
+
+                    if err or not res then
+                      ngx.status = 403
+                      ngx.say(err and err or "no access_token provided")
+                      ngx.exit(ngx.HTTP_FORBIDDEN)
+                    end
+                  ';
+              
+                  # pass the wss traffic as tcp traffic to the backend
+                  websockify_pass %%AWS_NLB_IP_ADDRESS%%:\$wss_scaled_port;
+                }
+              }
+              server {
+                listen ${OAUTH_PROXY_BIND_PORT} ssl;
+
+                ssl_certificate     ${PROXY_CERTS_DIR}/servercert.pem;
+                ssl_certificate_key ${PROXY_CERTS_DIR}/serverkey.pem;
+                ssl_protocols       TLSv1 TLSv1.1 TLSv1.2;
+                ssl_ciphers         HIGH:!aNULL:!MD5;
+
+                location /token { 
+                  # scale the port
+                  set_by_lua \$https_scaled_port 'return ngx.var.server_port - ${PROXY_PORT_SCALE_FACTOR}';
+
+                  proxy_pass http://%%AWS_NLB_IP_ADDRESS%%:\$https_scaled_port/awsexample/token;  
+                }
+
+                location /authorize { 
+                  # scale the port
+                  set_by_lua \$https_scaled_port 'return ngx.var.server_port - ${PROXY_PORT_SCALE_FACTOR}';
+
+                  proxy_pass http://%%AWS_NLB_IP_ADDRESS%%:\$https_scaled_port/awsexample/authorize;  
+                }
+
+                location /configuration { 
+                  # scale the port
+                  set_by_lua \$https_scaled_port 'return ngx.var.server_port - ${PROXY_PORT_SCALE_FACTOR}';
+
+                  proxy_pass http://%%AWS_NLB_IP_ADDRESS%%:\$https_scaled_port/awsexample/.well-known/openid-configuration;  
+                }
+              }
+            }
+            EOF
+
+            echo ""
+            echo "Verify ${PROXY_CONF_FILE} exists?"
+            [ -f "${PROXY_CONF_FILE}" ] && echo exists!
+            echo ""
+
+            # create the nginx servercert.pem file
+            echo "#########################################"
+            echo "Creating the nginx servercert.pem file at: ${PROXY_CERTS_DIR}/servercert.pem"
+            echo "Creating the nginx serverkey.pem file at: ${PROXY_CERTS_DIR}/serverkey.pem"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng certificate files
+            sudo [ -f "${PROXY_CERTS_DIR}/servercert.pem" ] && sudo rm -f "${PROXY_CERTS_DIR}/servercert.pem"
+            sudo [ -f "${PROXY_CERTS_DIR}/serverkey.pem" ] && sudo rm -f "${PROXY_CERTS_DIR}/serverkey.pem"
+            
+            sudo mkdir -p "${PROXY_CERTS_DIR}"
+
+            # temporarily open permissions on certs dir to allow self-signed certificate creation
+            sudo chmod -R u+rw,g+rw,o+rw "${PROXY_CERTS_DIR}"
+
+            # generate self-signed certificate
+            openssl req -x509 -out "${PROXY_CERTS_DIR}/servercert.pem" -keyout "${PROXY_CERTS_DIR}/serverkey.pem" \
+              -newkey rsa:2048 -nodes -sha256 -subj "/CN=localhost" -extensions EXT -config <( \
+              printf "[dn]\nCN=localhost\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:localhost\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")
+
+            echo ""
+            echo "Verify ${PROXY_CERTS_DIR}/servercert.pem exists?"
+            sudo [ -f "${PROXY_CERTS_DIR}/servercert.pem" ] && echo exists!
+            echo ""
+
+            echo ""
+            echo "Verify ${PROXY_CERTS_DIR}/serverkey.pem exists?"
+            sudo [ -f "${PROXY_CERTS_DIR}/serverkey.pem" ] && echo exists!
+            echo ""
+
+            # close permissions on certs dir to allow self-signed certificate creation
+            sudo chmod -R u+r,u-wx,g-rwx,o-rwx "${PROXY_CERTS_DIR}"
+
+            echo "#########################################"
+            echo "Creating the nginx jail chroot environment: ${JAIL_BASE_DIR}"
+            echo "#########################################"
+            echo ""
+
+            echo "Create jail directories ..."
+            # create jail directories
+            sudo mkdir -p "${JAIL_BASE_DIR}"
+            sudo mkdir -p "${JAIL_BASE_DIR}/etc"
+            sudo mkdir -p "${JAIL_BASE_DIR}/dev"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var"
+            sudo mkdir -p "${JAIL_BASE_DIR}/run"
+            sudo mkdir -p "${JAIL_BASE_DIR}/usr"
+            sudo mkdir -p "${JAIL_BASE_DIR}/usr/sbin"
+            sudo mkdir -p "${JAIL_BASE_DIR}/tmp"
+            sudo chmod 1777 "${JAIL_BASE_DIR}/tmp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/tmp"
+            sudo chmod 1777 "${JAIL_BASE_DIR}/var/tmp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/log/nginx"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/run"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/cache/nginx/client_temp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/cache/nginx/proxy_temp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/cache/nginx/fastcgi_temp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/cache/nginx/uwsgi_temp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/var/cache/nginx/scgi_temp"
+            sudo mkdir -p "${JAIL_BASE_DIR}/lib64"
+            sudo mkdir -p "${JAIL_BASE_DIR}/usr/local/share/lua"
+            sudo mkdir -p "${JAIL_BASE_DIR}//usr/local/lib"
+            sudo mkdir -p "${JAIL_BASE_DIR}/usr/local/include"
+            sudo mkdir -p "${JAIL_BASE_DIR}/usr/local/bin"
+            sudo mkdir -p "${JAIL_BASE_DIR}/usr/lib/nginx"
+
+            echo "Create jail devices ..."
+            # create jail devices
+            sudo /bin/mknod -m 0666 "${JAIL_BASE_DIR}/dev/null" c 1 3
+            sudo /bin/mknod -m 0666 "${JAIL_BASE_DIR}/dev/random" c 1 8
+            sudo /bin/mknod -m 0444 "${JAIL_BASE_DIR}/dev/urandom" c 1 9
+
+            echo "Copy required nginx folders and files to jail ..."
+            # copy required nginx folders and files to jail
+            sudo cp -fa /usr/sbin/nginx "${JAIL_BASE_DIR}/usr/sbin/nginx"
+            sudo cp -far /etc/nginx "${JAIL_BASE_DIR}/etc/"
+            sudo cp -far /usr/local/share/lua "${JAIL_BASE_DIR}/usr/local/share"
+            sudo cp -far /usr/local/lib "${JAIL_BASE_DIR}/usr/local"
+            sudo cp -far /usr/local/include "${JAIL_BASE_DIR}/usr/local"
+            sudo cp -far /usr/local/bin "${JAIL_BASE_DIR}/usr/local"
+            sudo cp -far /usr/lib/nginx/modules "${JAIL_BASE_DIR}/usr/lib/nginx"
+            # sudo cp -f /etc/{group,prelink.cache,services,adjtime,shells,gshadow,shadow,hosts.deny,localtime,nsswitch.conf,nscd.conf,prelink.conf,protocols,hosts,passwd,ld.so.cache,ld.so.conf,resolv.conf,host.conf} "${JAIL_BASE_DIR}/etc"
+            sudo cp -f /etc/{group,services,adjtime,shells,gshadow,shadow,hosts.deny,localtime,nsswitch.conf,protocols,hosts,passwd,ld.so.cache,ld.so.conf,resolv.conf,host.conf} "${JAIL_BASE_DIR}/etc"
+            sudo cp -ar /etc/{ld.so.conf.d,prelink.conf.d} "${JAIL_BASE_DIR}/etc"
+
+            echo "Copy nginx linked libraries ..."
+            # copy nginx linked libraries
+            sudo cp -f /lib64/libdl.so.2 "${JAIL_BASE_DIR}/lib64/libdl.so.2"
+            sudo cp -f /lib64/libpthread.so.0 "${JAIL_BASE_DIR}/lib64/libpthread.so.0"
+            sudo cp -f /lib64/libcrypt.so.1 "${JAIL_BASE_DIR}/lib64/libcrypt.so.1"
+            sudo cp -f /lib64/libluajit-5.1.so.2 "${JAIL_BASE_DIR}/lib64/libluajit-5.1.so.2"
+            sudo cp -f /lib64/libm.so.6 "${JAIL_BASE_DIR}/lib64/libm.so.6"
+            sudo cp -f /lib64/libpcre.so.1 "${JAIL_BASE_DIR}/lib64/libpcre.so.1"
+            sudo cp -f /lib64/libssl.so.10 "${JAIL_BASE_DIR}/lib64/libssl.so.10"
+            sudo cp -f /lib64/libcrypto.so.10 "${JAIL_BASE_DIR}/lib64/libcrypto.so.10"
+            sudo cp -f /lib64/libz.so.1 "${JAIL_BASE_DIR}/lib64/libz.so.1"
+            sudo cp -f /lib64/libc.so.6 "${JAIL_BASE_DIR}/lib64/libc.so.6"
+            sudo cp -f /lib64/ld-linux-x86-64.so.2 "${JAIL_BASE_DIR}/lib64/ld-linux-x86-64.so.2"
+            sudo cp -f /lib64/libgcc_s.so.1 "${JAIL_BASE_DIR}/lib64/libgcc_s.so.1"
+            sudo cp -f /lib64/libgssapi_krb5.so.2 "${JAIL_BASE_DIR}/lib64/libgssapi_krb5.so.2"
+            sudo cp -f /lib64/libkrb5.so.3 "${JAIL_BASE_DIR}/lib64/libkrb5.so.3"
+            sudo cp -f /lib64/libcom_err.so.2 "${JAIL_BASE_DIR}/lib64/libcom_err.so.2"
+            sudo cp -f /lib64/libk5crypto.so.3 "${JAIL_BASE_DIR}/lib64/libk5crypto.so.3"
+            sudo cp -f /lib64/libkrb5support.so.0 "${JAIL_BASE_DIR}/lib64/libkrb5support.so.0"
+            sudo cp -f /lib64/libkeyutils.so.1 "${JAIL_BASE_DIR}/lib64/libkeyutils.so.1"
+            sudo cp -f /lib64/libresolv.so.2 "${JAIL_BASE_DIR}/lib64/libresolv.so.2"
+            sudo cp -f /lib64/libselinux.so.1 "${JAIL_BASE_DIR}/lib64/libselinux.so.1"
+
+            echo "Copy nginx required libraries ..."
+            # copy required libraries
+            sudo cp -f /lib64/libnss_files-2.26.so "${JAIL_BASE_DIR}/lib64/libnss_files-2.26.so"
+            sudo cp -f /lib64/libnss_files.so.2 "${JAIL_BASE_DIR}/lib64/libnss_files.so.2"
+            sudo cp -f /lib64/libnss_sss.so.2 "${JAIL_BASE_DIR}/lib64/libnss_sss.so.2"
+            sudo cp -f /lib64/libnsssysinit.so "${JAIL_BASE_DIR}/lib64/libnsssysinit.so"
+            sudo cp -f /lib64/libsss_idmap.so.0 "${JAIL_BASE_DIR}/lib64/libsss_idmap.so.0"
+            sudo cp -f /lib64/libsss_idmap.so.0.5.1 "${JAIL_BASE_DIR}/lib64/libsss_idmap.so.0.5.1"
+            sudo cp -f /lib64/libsss_nss_idmap.so.0 "${JAIL_BASE_DIR}/lib64/libsss_nss_idmap.so.0"
+            sudo cp -f /lib64/libsss_nss_idmap.so.0.5.0 "${JAIL_BASE_DIR}/lib64/libsss_nss_idmap.so.0.5.0"
+            sudo cp -far /lib64/sssd "${JAIL_BASE_DIR}/lib64/sssd"
+
+            echo "Set permissions on certs directory: "${JAIL_BASE_DIR}${PROXY_CERTS_DIR}" ..."
+            # set permissions on certs directory
+            sudo chmod -R u+r,u-wx,g-rwx,o-rwx "${JAIL_BASE_DIR}${PROXY_CERTS_DIR}"
+
+            # create the nginx pid error logrotate configuration file
+            echo "#########################################"
+            echo "Creating the nginx pid error logrotate configuration file at: ${NGINX_PID_ERROR_LOGROTATE_FILE}"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng logrotate file
+            [ -f "${NGINX_PID_ERROR_LOGROTATE_FILE}" ] && sudo rm -f "${NGINX_PID_ERROR_LOGROTATE_FILE}"
+
+            sudo tee -a "${NGINX_PID_ERROR_LOGROTATE_FILE}" > /dev/null <<EOF
+            ${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log {
+            su root docker
+            missingok
+            notifempty
+            weekly
+            compress
+                delaycompress # Workaround for files being incorrectly removed
+            create 0644 root root
+            rotate 20
+            size=30M
+            postrotate
+                /usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
+            endscript
+                sharedscripts
+            }
+            EOF
+
+            echo ""
+            echo "Verify ${NGINX_PID_ERROR_LOGROTATE_FILE} exists?"
+            [ -f "${NGINX_PID_ERROR_LOGROTATE_FILE}" ] && echo exists!
+            echo ""
+
+            # create the nginx http error logrotate configuration file
+            echo "#########################################"
+            echo "Creating the nginx http error logrotate configuration file at: ${NGINX_HTTP_ERROR_LOGROTATE_FILE}"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng logrotate file
+            [ -f "${NGINX_HTTP_ERROR_LOGROTATE_FILE}" ] && sudo rm -f "${NGINX_HTTP_ERROR_LOGROTATE_FILE}"
+
+            sudo tee -a "${NGINX_HTTP_ERROR_LOGROTATE_FILE}" > /dev/null <<EOF
+            ${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log {
+            su root docker
+            missingok
+            notifempty
+            weekly
+            compress
+                delaycompress # Workaround for files being incorrectly removed
+            create 0644 root root
+            rotate 20
+            size=30M
+            postrotate
+                /usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
+            endscript
+                sharedscripts
+            }
+            EOF
+
+            echo ""
+            echo "Verify ${NGINX_HTTP_ERROR_LOGROTATE_FILE} exists?"
+            [ -f "${NGINX_HTTP_ERROR_LOGROTATE_FILE}" ] && echo exists!
+            echo ""
+
+            # create the nginx http access logrotate configuration file
+            echo "#########################################"
+            echo "Creating the nginx http access logrotate configuration file at: ${NGINX_HTTP_ACCESS_LOGROTATE_FILE}"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng logrotate file
+            [ -f "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}" ] && sudo rm -f "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}"
+
+            sudo tee -a "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}" > /dev/null <<EOF
+            ${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log {
+            su root docker
+            missingok
+            notifempty
+            weekly
+            compress
+                delaycompress # Workaround for files being incorrectly removed
+            create 0644 root root
+            rotate 20
+            size=30M
+            postrotate
+                /usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
+            endscript
+                sharedscripts
+            }
+            EOF
+
+            echo ""
+            echo "Verify ${NGINX_HTTP_ACCESS_LOGROTATE_FILE} exists?"
+            [ -f "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}" ] && echo exists!
+            echo ""
+
+            # create the nginx service file
+            echo "#########################################"
+            echo "Creating the nginx service file at: ${NGINX_SERVICE_FILE}"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng service file
+            [ -f "${NGINX_SERVICE_FILE}" ] && sudo rm -f "${NGINX_SERVICE_FILE}"
+
+            sudo tee -a "${NGINX_SERVICE_FILE}" > /dev/null <<EOF
+            [Unit]
+            Description=The NGINX HTTP and reverse proxy server
+            After=syslog.target network-online.target remote-fs.target nss-lookup.target
+            Wants=network-online.target
+
+            [Service]
+            Type=forking
+            PIDFile=/nginx/var/run/nginx.pid
+            ExecStartPre=/usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -t
+            ExecStart=/usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx
+            ExecReload=/usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
+            ExecStop=/bin/kill -s QUIT $MAINPID
+            PrivateTmp=true
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            echo ""
+            echo "Verify ${NGINX_SERVICE_FILE} exists?"
+            [ -f "${NGINX_SERVICE_FILE}" ] && echo exists!
+            echo ""
+
+            # create an nginx environment variable file to supply runtime values to nginx
+            echo "#########################################"
+            echo "Creating the nginx environment variable file at: ${NGINX_ENVVARS_FILE}"
+            echo "#########################################"
+            echo ""
+
+            # remove any exisitng service file
+            sudo [ -f "${NGINX_ENVVARS_FILE}" ] && sudo rm -f "${NGINX_ENVVARS_FILE}"
+
+            sudo tee -a "${NGINX_ENVVARS_FILE}" > /dev/null <<EOF
+            #!/bin/bash
+            # This script is used to obtain the IP Address of the AWS Network Load Balancer
+            # and write the IP Address into the nginx.conf file to be used as the upstream address.
+            # Nginx can have trouble resolving the AWS Network Load Balancer IP Address when using the hostname
+            # as the upstream so the IP Address is a safer approach for this example project.
+            AWS_REGION=\$(curl --silent http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
+            ELB_DNS_NAME=\$(aws elbv2 describe-load-balancers --names @@AWS_NLB_NAME@@ --region \${AWS_REGION} --query 'LoadBalancers[0].DNSName' --output text)
+            ELB_IP_ADDRESS=\$(dig +short \${ELB_DNS_NAME})
+
+            sudo [ ! -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original" ] && sudo cp -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original"
+
+            sudo cp -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
+
+            sudo sed -i -e "s/%%AWS_NLB_IP_ADDRESS%%/\${ELB_IP_ADDRESS}/g" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
+
+            sudo systemctl is-active --quiet nginx && sudo service nginx restart
+            EOF
+
+            sudo chmod +x ${NGINX_ENVVARS_FILE}
+
+            echo ""
+            echo "Verify ${NGINX_ENVVARS_FILE} exists?"
+            [ -f "${NGINX_ENVVARS_FILE}" ] && echo exists!
+            echo ""
+
+            # remove any existing nginx envvars service file
+            [ -f "${NGINX_ENVVARS_SERVICE_FILE}" ] && sudo rm -f "${NGINX_ENVVARS_SERVICE_FILE}"
+
+            sudo tee -a "${NGINX_ENVVARS_SERVICE_FILE}" > /dev/null <<EOF
+            [Unit]
+            Description=Script which updates nginx config with the upstream AWS NLB IP Address
+            After=syslog.target network-online.target remote-fs.target nss-lookup.target nginx.service
+            Wants=network-online.target
+
+            [Service]
+            Type=simple
+            ExecStart=/bin/bash ${NGINX_ENVVARS_FILE}
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            echo ""
+            echo "Verify ${NGINX_ENVVARS_SERVICE_FILE} exists?"
+            [ -f "${NGINX_ENVVARS_SERVICE_FILE}" ] && echo exists!
+            echo ""
+
+            echo "#########################################"
+            echo "Cleanup orphaned nginx directories"
+            echo "#########################################"
+            echo ""
+            sudo rm -fr "${PROXY_BASE_DIR}"
+            sudo rm -f "/usr/sbin/nginx"
+
+            echo "#########################################"
+            echo "Allow Nginx to bind to the private IP of an EC2 instance"
+            echo "#########################################"
+            echo ""
+            echo "" | sudo tee -a /etc/sysctl.conf
+            echo "# allow processes to bind to the non-local address" | sudo tee -a /etc/sysctl.conf
+            echo "net.ipv4.ip_nonlocal_bind = 1" | sudo tee -a /etc/sysctl.conf
+            sudo sysctl -p /etc/sysctl.conf
+
+            echo "#########################################"
+            echo "Configure nginx as a service"
+            echo "#########################################"
+            echo ""
+            sudo systemctl daemon-reload
+            sudo systemctl enable nginx
+            sudo systemctl enable nginx-envvars
+
+            echo "#########################################"
+            echo "Configure CloudWatch agent to capture Nginx log files"
+            echo "#########################################"
+            echo ""
+
+            # install CloudWatch agent
+            sudo yum install -y amazon-cloudwatch-agent jq
+
+            if [ -f "${CLOUDWATCH_AGENT_CONF}" ]; then
+            echo "${CLOUDWATCH_AGENT_CONF} exists, appending Nginx log file settings."
+            sudo tee -a "/tmp/cw-log-config.sh" > /dev/null <<EOF
+            #!/bin/bash
+            sudo jq '.logs.logs_collected.files.collect_list += [{"file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log*", "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}", "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log"}]' "${CLOUDWATCH_AGENT_CONF}" > "${CLOUDWATCH_AGENT_CONF}.tmp" && sudo mv "${CLOUDWATCH_AGENT_CONF}.tmp" "${CLOUDWATCH_AGENT_CONF}" && sudo rm -fv "${CLOUDWATCH_AGENT_CONF}.tmp"
+            sudo jq '.logs.logs_collected.files.collect_list += [{"file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log*", "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}", "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log"}]' "${CLOUDWATCH_AGENT_CONF}" > "${CLOUDWATCH_AGENT_CONF}.tmp" && sudo mv "${CLOUDWATCH_AGENT_CONF}.tmp" "${CLOUDWATCH_AGENT_CONF}" && sudo rm -fv "${CLOUDWATCH_AGENT_CONF}.tmp"
+            sudo jq '.logs.logs_collected.files.collect_list += [{"file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log*", "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}", "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log"}]' "${CLOUDWATCH_AGENT_CONF}" > "${CLOUDWATCH_AGENT_CONF}.tmp" && sudo mv "${CLOUDWATCH_AGENT_CONF}.tmp" "${CLOUDWATCH_AGENT_CONF}" && sudo rm -fv "${CLOUDWATCH_AGENT_CONF}.tmp"
+            EOF
+            sudo chmod +x /tmp/cw-log-config.sh
+            sudo /tmp/cw-log-config.sh
+            sudo rm -fv /tmp/cw-log-config.sh
+            else 
+            echo "${CLOUDWATCH_AGENT_CONF} does not exist, creating file with Nginx log file settings."
+            sudo tee -a "${CLOUDWATCH_AGENT_CONF}" > /dev/null <<EOF
+            {
+              "logs":{
+                "logs_collected":{
+                  "files":{
+                    "collect_list":[
+                      {
+                      "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log*",
+                      "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
+                      "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log"
+                      },
+                      {
+                      "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log*",
+                      "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
+                      "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log"
+                      },
+                      {
+                      "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log*",
+                      "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
+                      "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            EOF
+            fi
+
+            echo "#########################################"
+            echo "Starting the CloudWatch agent with config file ${CLOUDWATCH_AGENT_CONF}"
+            echo "#########################################"
+            echo ""
+            cd /
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:"${CLOUDWATCH_AGENT_CONF}"
+
+            ########################################
+            # </END> Nginx configuration           #
+            ########################################
