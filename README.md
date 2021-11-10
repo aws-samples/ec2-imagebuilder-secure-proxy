@@ -2,7 +2,7 @@
 
 CDK stack with an EC2 Image Builder component that installs a NGINX proxy which performs `wss://` to `tcp://` protocol conversion and JWT token validation.
 
-Securing and modernising client access to TCP socket applications presents our customers with a unique set of challenges. How to authenticate client requests, how to enforce transit encryption and how to provide client access using standard web protocols. To increase complexity even further, our customers often require the implementation of these functionalities to be transparent, restricting any code or configuration changes to the TCP socket application. 
+Securing and modernising client access to TCP socket applications presents our customers with a unique set of challenges. Customers often need to ensure the authentication of client requests, enforcement of transit encryption as well as providing client access using standard web protocols. To increase complexity even further, our customers often require the implementation of these functionalities to be transparent, restricting any code or configuration changes to the TCP socket application.
 
 This project leverages the [EC2 Image Builder](https://aws.amazon.com/image-builder/) service to create an AMI ([Amazon Machine Images](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AMIs.html)) which includes a component that installs a custom build of the open-source [NGINX](https://nginx.org/en) proxy.
 
