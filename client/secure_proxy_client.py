@@ -34,7 +34,21 @@ class OAuthClient:
         try:
             return requests.get(
                 self.config_url, 
-                verify=False, 
+                # MODIFICATION REQUIRED
+                # to permit the use of a self-signed certificate you can either:
+                #
+                # uncomment the line "verify=False" below to disable veritifcation. This is a bad
+                # security practice and should only be used for dev testing.
+                #
+                # verify=False,
+                #
+                # The other option is to export the proxy servers certificate chain and explicitly reference
+                # the pem file.
+                #
+                # On a Linux or Mac the following command can help to export the certificate chain:
+                # openssl s_client -showcerts -connect <SECURE_PROXY_PUBLIC_IP_ADDR>:11080 </dev/null | sed -n -e '/-.BEGIN/,/-.END/ p' > proxy_ca.pem
+                #
+                # verify='/path/to/proxy_ca.pem'
                 allow_redirects=False
             )
         except:
@@ -54,7 +68,21 @@ class OAuthClient:
             access_token_response = requests.post(
                 self.token_url, 
                 data=data, 
-                verify=False, 
+                # MODIFICATION REQUIRED
+                # to permit the use of a self-signed certificate you can either:
+                #
+                # uncomment the line "verify=False" below to disable veritifcation. This is a bad
+                # security practice and should only be used for dev testing.
+                #
+                # verify=False,
+                #
+                # The other option is to export the proxy servers certificate chain and explicitly reference
+                # the pem file.
+                #
+                # On a Linux or Mac the following command can help to export the certificate chain:
+                # openssl s_client -showcerts -connect <SECURE_PROXY_PUBLIC_IP_ADDR>:11080 </dev/null | sed -n -e '/-.BEGIN/,/-.END/ p' > proxy_ca.pem
+                #
+                # verify='/path/to/proxy_ca.pem'
                 allow_redirects=False, 
                 auth=(client_id, client_secret)
             )

@@ -207,7 +207,35 @@ In order to execute the test scenarios, the public IP address of the Secure Prox
 3. Select the Secure Proxy EC2 instance.
 4. In the *Details* tab, copy the *Public IPv4 address*.
 
-The test scenarios are executed using the command below:
+Additionally, the [secure_proxy_client.py](client/secure_proxy_client.py) file needs to be modified in order to determine the verification mode for the self-signed certificates used in this project.
+
+Within the [secure_proxy_client.py](client/secure_proxy_client.py) file, you can search for the text `MODIFICATION REQUIRED` to identify the 2 locations within the file that require updating.
+
+An example of a code block from the [secure_proxy_client.py](client/secure_proxy_client.py) file that requires modification is shown below:
+
+```python
+return requests.get(
+    self.config_url, 
+    # MODIFICATION REQUIRED
+    # to permit the use of a self-signed certificate you can either:
+    #
+    # uncomment the line "verify=False" below to disable veritifcation. This is a bad
+    # security practice and should only be used for dev testing.
+    #
+    # verify=False,
+    #
+    # The other option is to export the proxy servers certificate chain and explicitly reference
+    # the pem file.
+    #
+    # On a Linux or Mac the following command can help to export the certificate chain:
+    # openssl s_client -showcerts -connect <SECURE_PROXY_PUBLIC_IP_ADDR>:11080 </dev/null | sed -n -e '/-.BEGIN/,/-.END/ p' > proxy_ca.pem
+    #
+    # verify='/path/to/proxy_ca.pem'
+    allow_redirects=False
+)
+```
+
+Once you have obtained the public IP address of the Secure Proxy EC2 instance and the [secure_proxy_client.py](client/secure_proxy_client.py) file has been updated, the test scenarios can be executed using the command below:
 
 ```
 python client/secure_proxy_client.py -addr <<SECURE_PROXY_PUBLIC_IP_ADDR>>
