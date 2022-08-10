@@ -9,14 +9,13 @@ from aws_cdk import core as cdk
 # being updated to use `cdk`.  You may delete this import if you don't need it.
 from aws_cdk import core
 
-from utils.CdkUtils import CdkUtils
 from stacks.secureproxy.secure_proxy import SecureProxyStack
 
 app = core.App()
 
 SecureProxyStack(
     app, 
-    f'EC2ImageBuilderSecureProxy-{CdkUtils.stack_tag}',
+    f'EC2ImageBuilderSecureProxy',
     # If you don't specify 'env', this stack will be environment-agnostic.
     # Account/Region-dependent features and context lookups will not work,
     # but a single synthesized template can be deployed anywhere.

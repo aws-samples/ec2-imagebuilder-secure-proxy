@@ -1,5 +1,5 @@
+import os
 import ssl
-from requests.api import head
 import websocket
 import requests, json
 import traceback
@@ -7,6 +7,8 @@ import random
 import string
 import argparse
 from colorama import Fore, Back, Style
+
+SSL_CLIENT_CERT_PATH = os.getenv("SSL_CLIENT_CERT_PATH", False)
 
 def get_project_settings():
     filename = "cdk.json"
@@ -34,21 +36,7 @@ class OAuthClient:
         try:
             return requests.get(
                 self.config_url, 
-                # MODIFICATION REQUIRED
-                # to permit the use of a self-signed certificate you can either:
-                #
-                # uncomment the line "verify=False" below to disable veritifcation. This is a bad
-                # security practice and should only be used for dev testing.
-                #
-                # verify=False,
-                #
-                # The other option is to export the proxy servers certificate chain and explicitly reference
-                # the pem file.
-                #
-                # On a Linux or Mac the following command can help to export the certificate chain:
-                # openssl s_client -showcerts -connect <SECURE_PROXY_PUBLIC_IP_ADDR>:11080 </dev/null | sed -n -e '/-.BEGIN/,/-.END/ p' > proxy_ca.pem
-                #
-                # verify='/path/to/proxy_ca.pem'
+                verify=SSL_CLIENT_CERT_PATH,
                 allow_redirects=False
             )
         except:
@@ -67,22 +55,8 @@ class OAuthClient:
         try:
             access_token_response = requests.post(
                 self.token_url, 
-                data=data, 
-                # MODIFICATION REQUIRED
-                # to permit the use of a self-signed certificate you can either:
-                #
-                # uncomment the line "verify=False" below to disable veritifcation. This is a bad
-                # security practice and should only be used for dev testing.
-                #
-                # verify=False,
-                #
-                # The other option is to export the proxy servers certificate chain and explicitly reference
-                # the pem file.
-                #
-                # On a Linux or Mac the following command can help to export the certificate chain:
-                # openssl s_client -showcerts -connect <SECURE_PROXY_PUBLIC_IP_ADDR>:11080 </dev/null | sed -n -e '/-.BEGIN/,/-.END/ p' > proxy_ca.pem
-                #
-                # verify='/path/to/proxy_ca.pem'
+                data=data,
+                verify=SSL_CLIENT_CERT_PATH,
                 allow_redirects=False, 
                 auth=(client_id, client_secret)
             )
@@ -163,6 +137,7 @@ class SecureProxyTestScenarios:
         response = OAuthClient(self.address, self.https_port).get_oauth_configuration()
         if response is not None:
             print(Fore.GREEN + "SUCCESS:" + Fore.WHITE + f" Displaying the oAuth configuration." + Fore.WHITE)
+            print(response)
             print(json.dumps(response.json(), indent=4, sort_keys=True))
             self.print_scenario_footer("01", f" Retrieved oAuth configuration from https://{self.address}:{self.https_port}/configuration.")
         else:

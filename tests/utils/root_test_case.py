@@ -90,6 +90,7 @@ class RootTestCase(TestCase):
     backup_plan = 'AWS::Backup::BackupPlan'
     backup_vault = 'AWS::Backup::BackupVault'
     backup_selection = 'AWS::Backup::BackupSelection'
+    ssm_parameter = 'AWS::SSM::Parameter'
     ssm_maintenance_window = 'AWS::SSM::MaintenanceWindow'
     ssm_maintenance_window_target = 'AWS::SSM::MaintenanceWindowTarget'
     ssm_maintenance_window_task = 'AWS::SSM::MaintenanceWindowTask'
@@ -209,4 +210,4 @@ class RootTestCase(TestCase):
 
     @staticmethod
     def load_stack_template(stack_name: str):
-        return read(f'{cdk_out_dir}/EC2ImageBuilderSecureProxy-{CdkUtils.stack_tag}.{suffix}')
+        return read(f'{cdk_out_dir}/EC2ImageBuilderSecureProxy.{suffix}')

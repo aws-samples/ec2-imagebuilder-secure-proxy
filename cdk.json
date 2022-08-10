@@ -20,8 +20,11 @@
     "vpc": {
       "cidr": "192.168.0.0/16",
       "subnets": {
-        "mask": 24
+        "mask": 22
       }
+    },
+    "ssm": {
+      "projectPrefix": "secure-proxy"
     },
     "elb": {
       "namePrefix": "secure-proxy-elb"
@@ -32,15 +35,14 @@
       "instanceTypes": [
         "t2.medium"
       ],
-      "version": "1.0.0",
+      "secure_proxy_recipe_version": "1.0.0",
+      "secure_proxy_component_version": "1.0.0",
+      "mock_servers_recipe_version": "1.0.0",
+      "mock_servers_component_version": "1.0.0",
       "imageBuilderEmailAddress": "email@domian.com",
       "extraTags": {
         "imagePipeline": "AMIBuilder"
-      },
-      "distributionList": [
-        "account1",
-        "account2"
-      ]
+      }
     },
     "proxySettings": {
       "jailBaseDir": "/nginx",
@@ -51,6 +53,8 @@
       "keepaliveTimeout": "120",
       "wssProxyBindPort": "10000",
       "oAuthProxyBindPort": "11080",
+      "kernel_ports_range_start": "32768",
+      "kernel_ports_range_end": "61000",
       "proxyPortScaleFactor": "1000",
       "websockifyConnectTimeout": "30s",
       "websockifyReadTimeout": "60s",
@@ -59,6 +63,10 @@
     "mockServers": {
       "tcpServerPort": "9000",
       "oAuthServerPort": "10080"
+    },
+    "externalIp": {
+      "autoDetect": true,
+      "iPAddress": "0.0.0.0/0"
     }
   }
 }

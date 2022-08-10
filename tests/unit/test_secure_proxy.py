@@ -31,7 +31,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     def test_secure_proxy_vpc_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.vpc, f"secure-proxy-vpc-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.vpc, "secure-proxy-vpc"
             )
         )
 
@@ -58,29 +58,29 @@ class TestSecureProxyStack(tc.BaseTestCase):
 
     def test_secure_proxy_imagebuilder_instance_profile_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.iam_instance_profile, f"secure-proxy-imagebuilder-instance-profile-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.iam_instance_profile, "secure-proxy-imagebuilder-instance-profile"
             )
         )
 
     def test_secure_proxy_ec2_instance_profile_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.iam_instance_profile, f"secure-proxy-ec2-instance-profile-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.iam_instance_profile, "secure-proxy-ec2-instance-profile"
             )
         )
 
     def test_secure_proxy_security_group_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.ec2_security_group, f"secure-proxy-security-group-{CdkUtils.stack_tag}")
+            contain_metadata_path(self.ec2_security_group, "secure-proxy-security-group")
         )
 
     def test_secure_proxy_image_role_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.iam_role, f"secure-proxy-image-role-{CdkUtils.stack_tag}")
+            contain_metadata_path(self.iam_role, "secure-proxy-image-role")
         )
 
     def test_secure_proxy_ec2_role_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.iam_role,  f"secure-proxy-ec2-role-{CdkUtils.stack_tag}")
+            contain_metadata_path(self.iam_role,  "secure-proxy-ec2-role")
         )
 
     def test_secure_proxy_image_role_policy(self):
@@ -150,28 +150,28 @@ class TestSecureProxyStack(tc.BaseTestCase):
             {
                 "SecurityGroupEgress": [
                     {
-                        "CidrIp": "0.0.0.0/0",
+                        "CidrIp": ANY_VALUE,
                         "Description": "Allow all outbound traffic by default",
                         "IpProtocol": "-1"
                     }
                 ],
                 "SecurityGroupIngress": [
                     {
-                        "CidrIp": "0.0.0.0/0",
+                        "CidrIp": ANY_VALUE,
                         "Description": "SSH traffic",
                         "FromPort": 22,
                         "IpProtocol": "tcp",
                         "ToPort": 22
                     },
                     {
-                        "CidrIp": "0.0.0.0/0",
+                        "CidrIp": ANY_VALUE,
                         "Description": "WSS traffic",
                         "FromPort": int(self.config["proxySettings"]["wssProxyBindPort"]),
                         "IpProtocol": "tcp",
                         "ToPort": int(self.config["proxySettings"]["wssProxyBindPort"])
                     },
                     {
-                        "CidrIp": "0.0.0.0/0",
+                        "CidrIp": ANY_VALUE,
                         "Description": "oAuth traffic",
                         "FromPort": int(self.config["proxySettings"]["oAuthProxyBindPort"]),
                         "IpProtocol": "tcp",
@@ -183,7 +183,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
 
     def test_nlb_traffic_security_group_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.ec2_security_group, f"nlb-traffic-security-group-{CdkUtils.stack_tag}")
+            contain_metadata_path(self.ec2_security_group, "nlb-traffic-security-group")
         )
 
     def test_nlb_traffic_security_ingress_rules(self):
@@ -192,7 +192,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
             {
                 "SecurityGroupEgress": [
                     {
-                        "CidrIp": "0.0.0.0/0",
+                        "CidrIp": ANY_VALUE,
                         "Description": "Allow all outbound traffic by default",
                         "IpProtocol": "-1"
                     }
@@ -243,12 +243,12 @@ class TestSecureProxyStack(tc.BaseTestCase):
 
     def test_secure_proxy_kms_key_alias_created(self):
         expect(self.cfn_template).to(have_resource(self.kms_alias, {
-            "AliasName": f"alias/secure-proxy-kms-key-alias-{CdkUtils.stack_tag}"
+            "AliasName": "alias/secure-proxy-kms-key-alias"
         }))
 
     def test_secure_proxy_kms_key_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.kms_key, f"secure-proxy-kms-key-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.kms_key, "secure-proxy-kms-key"
             )
         )
     ##################################################
@@ -260,7 +260,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     def test_secure_proxy_loggroup_exists(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.cw_log_group, f"secure-proxy-logs-group-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.cw_log_group, "secure-proxy-logs-group"
             )
         )
 
@@ -273,6 +273,17 @@ class TestSecureProxyStack(tc.BaseTestCase):
         expect(self.cfn_template).to(have_resource(self.cw_log_group, {
             "KmsKeyId": ANY_VALUE
     }))
+
+    def test_state_machine_loggroup_exists(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.cw_log_group, "secure-proxy-state-machine-logs-group"
+            )
+        )
+
+    def test_state_machine_loggroup_retention(self):
+        expect(self.cfn_template).to(have_resource(self.cw_log_group, {
+            "RetentionInDays": 14
+    }))
     ##################################################
     ## </END> AWS Cloudwatch LogGroups tests
     ##################################################
@@ -282,25 +293,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     def test_secure_proxy_imagebuilder_instance_profile_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.elastic_load_balancer, f"secure-proxy-elb-{CdkUtils.stack_tag}"
-            )
-        )
-
-    def test_wss_elb_listener_created(self):
-        expect(self.cfn_template).to(
-            contain_metadata_path(self.elastic_load_balancer_listener, f"wss-elb-listener-{CdkUtils.stack_tag}"
-            )
-        )
-
-    def test_wss_elb_listener_created(self):
-        expect(self.cfn_template).to(
-            contain_metadata_path(self.elastic_load_balancer_listener, f"oauth-elb-listener-{CdkUtils.stack_tag}"
-            )
-        )
-
-    def test_secure_proxy_asg_created(self):
-        expect(self.cfn_template).to(
-            contain_metadata_path(self.autoscaling_group, f"secure-proxy-asg-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.elastic_load_balancer, "secure-proxy-elb"
             )
         )
     ##################################################
@@ -312,7 +305,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     def test_infra_config_created(self):
         expect(self.cfn_template).to(contain_metadata_path(
-            self.imagebuilder_infrastructure_configuration, f"secure-proxy-infra-config-{CdkUtils.stack_tag}"
+            self.imagebuilder_infrastructure_configuration, "secure-proxy-infra-config"
             )
         )
 
@@ -324,13 +317,13 @@ class TestSecureProxyStack(tc.BaseTestCase):
     
     def test_secure_proxy_recipe_created(self):
         expect(self.cfn_template).to(contain_metadata_path(
-            self.imagebuilder_recipe, f"secure-proxy-image-recipe-{CdkUtils.stack_tag}"
+            self.imagebuilder_recipe, "secure-proxy-image-recipe"
             )
         )
 
     def test_secure_proxy_pipeline_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.imagebuilder_image_pipeline, f"secure-proxy-pipeline-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.imagebuilder_image_pipeline, "secure-proxy-pipeline"
             )
         )
 
@@ -341,17 +334,17 @@ class TestSecureProxyStack(tc.BaseTestCase):
                     {
                         "AmiDistributionConfiguration": {
                             "Name": {
-                                "Fn::Sub": f'SecureProxy-{CdkUtils.stack_tag}-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'
+                                "Fn::Sub": f'SecureProxy-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'
                             },
                             "AmiTags": {
                                 "project": "ec2-imagebuilder-secure-proxy",
-                            "Pipeline": f"SecureProxyPipeline-{CdkUtils.stack_tag}"
+                            "Pipeline": "SecureProxyPipeline"
                             }
                         },
                         "Region": core.Aws.REGION
                     }
                 ],
-                "Name": f'secure-proxy-distribution-config-{CdkUtils.stack_tag}'
+                "Name": f'secure-proxy-distribution-config'
             }))
 
     def test_mock_servers_component_created(self):
@@ -362,13 +355,13 @@ class TestSecureProxyStack(tc.BaseTestCase):
     
     def test_mock_servers_recipe_created(self):
         expect(self.cfn_template).to(contain_metadata_path(
-            self.imagebuilder_recipe, f"mock-servers-image-recipe-{CdkUtils.stack_tag}"
+            self.imagebuilder_recipe, "mock-servers-image-recipe"
             )
         )
 
     def test_mock_servers_pipeline_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.imagebuilder_image_pipeline, f"mock-servers-pipeline-{CdkUtils.stack_tag}"
+            contain_metadata_path(self.imagebuilder_image_pipeline, "mock-servers-pipeline"
             )
         )
 
@@ -379,22 +372,22 @@ class TestSecureProxyStack(tc.BaseTestCase):
                     {
                         "AmiDistributionConfiguration": {
                             "Name": {
-                                "Fn::Sub": f'MockServers-{CdkUtils.stack_tag}-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'
+                                "Fn::Sub": f'MockServers-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'
                             },
                             "AmiTags": {
                                 "project": "ec2-imagebuilder-secure-proxy",
-                            "Pipeline": f"MockServersPipeline-{CdkUtils.stack_tag}"
+                            "Pipeline": "MockServersPipeline"
                             }
                         },
                         "Region": core.Aws.REGION
                     }
                 ],
-                "Name": f'mock-servers-distribution-config-{CdkUtils.stack_tag}'
+                "Name": f'mock-servers-distribution-config'
             }))
 
     def test_sns_topic_created(self):
         expect(self.cfn_template).to(
-            contain_metadata_path(self.sns_topic, f"secure-proxy-imagebuilder-topic-{CdkUtils.stack_tag}"))
+            contain_metadata_path(self.sns_topic, "secure-proxy-imagebuilder-topic"))
 
     def test_sns_subscription_created(self):
         expect(self.cfn_template).to(
@@ -411,3 +404,117 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     ## </END> EC2 Imagebuilder tests
     ##################################################
+
+    ##################################################
+    ## <START> State Machine tests
+    ##################################################
+
+    def test_ami_share_state_machine(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.state_machine, "secure-proxy-state-machine"))
+
+    ##################################################
+    ## </END> State Machine tests
+    ##################################################
+
+    ##################################################
+    ## <START> Lambda function test
+    ##################################################
+
+    def test_entry_point_role(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.iam_role, "secure-proxy-entry-point-role"))
+
+    def test_entry_point_lambda(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.lambda_, "secure-proxy-entry-point-lambda"))
+
+    def test_poll_ami_status_role(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.iam_role, "secure-proxy-poll-ami-status-role"))
+
+    def test_poll_ami_status_lambda(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.lambda_, "secure-proxy-poll-ami-status-lambda"))
+
+    def test_get_ami_details_role(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.iam_role, "secure-proxy-get-ami-details-role"))
+
+    def test_get_ami_details_lambda(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.lambda_, "secure-proxy-get-ami-details-lambda"))
+
+    def test_create_secure_proxy_role(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.iam_role, "secure-proxy-create-secure-proxy-role"))
+
+    def test_create_secure_proxy_lambda(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.lambda_, "secure-proxy-create-secure-proxy-lambda"))
+
+    def test_create_mock_servers_asg_role(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.iam_role, "secure-proxy-create-mock-servers-asg-role"))
+
+    def test_create_mock_servers_asg_lambda(self):
+        expect(self.cfn_template).to(contain_metadata_path(self.lambda_, "secure-proxy-create-mock-servers-asg-lambda"))
+
+    ##################################################
+    ## </START> Lambda function test
+    ##################################################
+
+
+    ##################################################
+    ## </START> SSM Parameter tests
+    ##################################################
+    def test_secure_proxy_pipeline_arn_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-pipeline-arn-ssm"))
+
+    def test_mock_servers_pipeline_arn_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "mock-servers-pipeline-arn-ssm"))
+
+    def test_secure_proxy_nlb_dns_name_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-nlb-dns-name-ssm"))
+
+    def test_secure_proxy_vpc_id_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-vpc-id-ssm"))
+
+    def test_secure_proxy_elb_security_group_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-elb-security-group-ssm"))
+
+    def test_secure_proxy_elb_arn_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-elb-arn-ssm"))
+
+    def test_secure_proxy_elb_wss_port_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-elb-wss-port-ssm"))
+
+    def test_secure_proxy_elb_oauth_port_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-elb-oauth-port-ssm"))
+
+    def test_secure_proxy_ec2_instance_profile_arn_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-ec2-instance-profile-arn-ssm"))
+
+    def test_secure_proxy_vpc_public_subnet_id_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-vpc-public-subnet-id-ssm"))
+
+    def test_secure_proxy_vpc_private_subnet_id_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-vpc-private-subnet-id-ssm"))
+
+    def test_secure_proxy_security_group_id_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-security-group-id-ssm"))
+
+    def test_mock_servers_security_group_id_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "mock-servers-security-group-id-ssm"))
+
+    def test_secure_proxy_wss_bind_port_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-wss-bind-port-ssm"))
+
+    def test_secure_proxy_oauth_bind_port_ssm(self):
+        expect(self.cfn_template).to(
+            contain_metadata_path(self.ssm_parameter, "secure-proxy-oauth-bind-port-ssm"))

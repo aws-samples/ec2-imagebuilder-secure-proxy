@@ -10,6 +10,7 @@ phases:
         inputs:
           commands:
           - sudo yum -y update
+          - sudo yum -y install jq
           - |
             ########################################
             # <Start> Global variable declarations #
@@ -37,6 +38,11 @@ phases:
             PROXY_PORT_SCALE_FACTOR="@@PROXY_PORT_SCALE_FACTOR@@"
             OAUTH_PROXY_BIND_PORT_SCALED=$((${OAUTH_PROXY_BIND_PORT} - ${PROXY_PORT_SCALE_FACTOR}))
 
+            # Ports to be explicitly reserved for kernel processes
+            # these ports are reserved explicitly to prevent port conflicts with NGINX
+            KERNEL_PORTS_RANGE_START="@@KERNEL_PORTS_RANGE_START@@"
+            KERNEL_PORTS_RANGE_END="@@KERNEL_PORTS_RANGE_END@@"
+
             # websockify module timeouts
             WEBSOCKIFY_CONNECT_TIMEOUT="@@WEBSOCKIFY_CONNECT_TIMEOUT@@"
             WEBSOCKIFY_READ_TIMEOUT="@@WEBSOCKIFY_READ_TIMEOUT@@"
@@ -55,6 +61,8 @@ phases:
             echo "OAUTH_PROXY_BIND_PORT         = ${OAUTH_PROXY_BIND_PORT}"
             echo "PROXY_PORT_SCALE_FACTOR       = ${PROXY_PORT_SCALE_FACTOR}"
             echo "OAUTH_PROXY_BIND_PORT_SCALED  = ${OAUTH_PROXY_BIND_PORT_SCALED}"
+            echo "KERNEL_PORTS_RANGE_START      = ${KERNEL_PORTS_RANGE_START}"
+            echo "KERNEL_PORTS_RANGE_END        = ${KERNEL_PORTS_RANGE_END}"
             echo "WEBSOCKIFY_CONNECT_TIMEOUT    = ${WEBSOCKIFY_CONNECT_TIMEOUT}"
             echo "WEBSOCKIFY_READ_TIMEOUT       = ${WEBSOCKIFY_READ_TIMEOUT}"
             echo "WEBSOCKIFY_SEND_TIMEOUT       = ${WEBSOCKIFY_SEND_TIMEOUT}"
@@ -74,16 +82,14 @@ phases:
             ########################################
             # nginx build variables
             BUILD_DIR="/tmp"
-            NGINX_VERSION="1.18.0"
+            NGINX_VERSION="1.22.0"
             LUAJIT_VERSION="2.0.5"
             LUA_NGINX_MODULE_VERSION="0.10.15"
             LUA_DOWNLOAD_VERSION="5.1.5"
             LUA_LIB_VERSION="5.1"
-            LUAROCKS_VERSION="3.3.1"
+            LUAROCKS_VERSION="3.8.0"
             WEBSOCKIFY_NGINX_MODULE_VERSION="0.0.3"
-            LIB_JWT_VERSION="1.13.1"
             NGINX_DEV_VERSION="0.3.1"
-            JANSON_VERSION="2.13.1"
             CONFIG="\
             --prefix=/etc/nginx \
             --sbin-path=/usr/sbin/nginx \
@@ -131,19 +137,22 @@ phases:
             --add-module=${BUILD_DIR}/websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION} \
             --add-module=${BUILD_DIR}/lua-nginx-module-${LUA_NGINX_MODULE_VERSION} \
             --add-module=${BUILD_DIR}/ngx_devel_kit-${NGINX_DEV_VERSION}"
-            INSTALL_PKGS="gcc openssl-devel readline-devel libxslt-devel gd-devel geoip-devel git autoconf automake libtool"
+
+            INSTALL_PKGS="gcc openssl11-devel readline-devel libxslt-devel gd-devel geoip-devel git autoconf automake libtool"
 
             # Systemd service for nginx
             NGINX_SERVICE_FILE="/etc/systemd/system/nginx.service"
 
-            # Logrotate configuration
-            NGINX_PID_ERROR_LOGROTATE_FILE="/etc/logrotate.d/nginx-pid-error"
-            NGINX_HTTP_ERROR_LOGROTATE_FILE="/etc/logrotate.d/nginx-http-error"
-            NGINX_HTTP_ACCESS_LOGROTATE_FILE="/etc/logrotate.d/nginx-http-access"
-
             # create an nginx environment variable file to supply runtime values to nginx
             NGINX_ENVVARS_FILE="/nginx/etc/nginx/nginx_envvars.sh"
-            NGINX_ENVVARS_SERVICE_FILE="/etc/systemd/system/nginx-envvars.service"
+            NGINX_METRICS_SERVICE_FILE="/etc/systemd/system/nginx-metrics.service"
+
+            # nginx metrics configurations
+            NGINX_METRICS_DIR="${JAIL_BASE_DIR}${PROXY_BASE_DIR}/metrics"
+            NGINX_METRICS_FILE="${NGINX_METRICS_DIR}/nginx_metrics.py"
+            NGINX_METRICS_LAUNCH_FILE="${NGINX_METRICS_DIR}/launch_nginx_metrics.sh"
+            METRIC_POLLING_LOOP_START_DELAY=15
+            METRIC_POLLING_LOOP_INTERVAL=20
 
             # Cloudwatch log agent config file
             CLOUDWATCH_AGENT_CONF="/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
@@ -155,26 +164,19 @@ phases:
 
             ########################################
             # </Start> Nginx installation          #
-            ########################################
+            ########################################        
 
-            # nginx install
-            echo "#########################################"
             echo "Starting nginx installation ..."
-            echo "#########################################"
-            echo ""
 
-            echo ""
             echo "## Creating nginx user and group ##"
             sudo groupadd --system nginx
             sudo useradd --system --home-dir /var/cache/nginx --shell /sbin/nologin -g nginx nginx
 
-            echo ""
             echo "## Installing yum packages ##"
             sudo yum update -y
             sudo yum install -y ${INSTALL_PKGS}
 
             # install nginx
-            echo ""
             echo "## Grabbing and extracting nginx ##"
             cd ${BUILD_DIR}
             curl -fSL http://nginx.org/download/nginx-$NGINX_VERSION.tar.gz -o nginx.tar.gz
@@ -183,7 +185,6 @@ phases:
             sudo rm nginx.tar.gz
 
             # grab the websockify-nginx-module
-            echo ""
             echo "## Grabbing and extracting websockify-nginx-module ##"
             cd ${BUILD_DIR}
             curl -fSL https://github.com/tg123/websockify-nginx-module/archive/refs/tags/v${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz -o websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz
@@ -191,66 +192,30 @@ phases:
             rm websockify-nginx-module-${WEBSOCKIFY_NGINX_MODULE_VERSION}.tar.gz
 
             # grab nginx devel kit
-            echo ""
             echo "## Grabbing and extracting nginx devel kit ##"
             cd ${BUILD_DIR}
             curl -fSL https://github.com/vision5/ngx_devel_kit/archive/refs/tags/v${NGINX_DEV_VERSION}.tar.gz -o nginx-devel-kit-${NGINX_DEV_VERSION}.tar.gz
             tar -xf nginx-devel-kit-${NGINX_DEV_VERSION}.tar.gz
             rm nginx-devel-kit-${NGINX_DEV_VERSION}.tar.gz
 
-            # install jwt -- https://mostafa-asg.github.io/post/nginx-authentication-with-jwt/
-            echo ""
-            echo "## Grabbing and extracting jansson-${JANSON_VERSION} ##"
-            cd ${BUILD_DIR}
-            curl -fSL https://digip.org/jansson/releases/jansson-${JANSON_VERSION}.tar.gz -o jansson-${JANSON_VERSION}.tar.gz
-            tar -xf jansson-${JANSON_VERSION}.tar.gz
-            cd jansson-${JANSON_VERSION}
-            sudo ./configure
-            sudo make
-            sudo make install
-            sudo cp /usr/local/lib/pkgconfig/jansson.pc /usr/share/pkgconfig/jansson.pc
-            cd ${BUILD_DIR}
-            sudo rm jansson-${JANSON_VERSION}.tar.gz
-            sudo rm -fr jansson-${JANSON_VERSION}
-
-            echo ""
-            echo "## Grabbing and extracting libjwt-${LIB_JWT_VERSION} ##"
-            cd ${BUILD_DIR}
-            curl -fSL https://github.com/benmcollins/libjwt/archive/refs/tags/v${LIB_JWT_VERSION}.tar.gz -o libjwt-${LIB_JWT_VERSION}.tar.gz
-            tar -xf libjwt-${LIB_JWT_VERSION}.tar.gz
-            cd libjwt-${LIB_JWT_VERSION}
-            sudo autoreconf -i
-            sudo ./configure
-            sudo make
-            sudo make install
-
-            cd ${BUILD_DIR}
-            sudo rm libjwt-${LIB_JWT_VERSION}.tar.gz
-            sudo rm -fr libjwt-${LIB_JWT_VERSION}
-            # end jwt
-
             # LuaJit & nginx-lua-module
-            echo ""
             echo "## Grabbing and extracting LuaJIT ##"
             cd ${BUILD_DIR}
             curl -fSL https://github.com/openresty/luajit2/archive/v${LUAJIT_VERSION}.tar.gz  -o LuaJIT.tar.gz
             tar zxf LuaJIT.tar.gz
 
-            echo ""
             echo "## Grabbing and extracting lua-nginx-module ##"
             curl -fSL https://github.com/openresty/lua-nginx-module/archive/v${LUA_NGINX_MODULE_VERSION}.tar.gz  -o lua-nginx-module.tar.gz
             tar zxf lua-nginx-module.tar.gz
 
             sudo rm -f LuaJIT.tar.gz lua-nginx-module.tar.gz
 
-            echo ""
             echo "## Making luajit2-${LUAJIT_VERSION} ##"
             sudo make -C ${BUILD_DIR}/luajit2-${LUAJIT_VERSION}
             sudo make -C ${BUILD_DIR}/luajit2-${LUAJIT_VERSION} install
             sudo cp /usr/local/lib/pkgconfig/luajit.pc /usr/share/pkgconfig/luajit.pc
             sudo cp -r /usr/local/include/luajit-2.0/* /usr/include/
 
-            echo ""
             echo "## Building nginx ##"
             cd /usr/src/nginx-${NGINX_VERSION}
             sudo ./configure $CONFIG --with-debug
@@ -264,7 +229,6 @@ phases:
             sudo make -j$(getconf _NPROCESSORS_ONLN)
             sudo make install
 
-            echo ""
             echo "## Configuring nginx ##"
             sudo rm -rf /etc/nginx/html/
             sudo mkdir /etc/nginx/conf.d/
@@ -281,11 +245,6 @@ phases:
             sudo strip /usr/lib/nginx/modules/*.so
             sudo rm -rf /usr/src/nginx-$NGINX_VERSION
 
-            sudo rm -rf ${BUILD_DIR}/${WEBSOCKIFY_NGINX_MODULE_VERSION} 
-            sudo rm -rf ${BUILD_DIR}/lua-nginx-module-${LUA_NGINX_MODULE_VERSION} 
-            sudo rm -rf ${BUILD_DIR}/luajit2-${LUAJIT_VERSION}
-
-            echo ""
             echo "## Building lua-${LUA_DOWNLOAD_VERSION} ##"
             cd ${BUILD_DIR}
             curl -R -O http://www.lua.org/ftp/lua-${LUA_DOWNLOAD_VERSION}.tar.gz
@@ -294,7 +253,6 @@ phases:
             sudo make linux test
             sudo make install
 
-            echo ""
             echo "## Building luarocks-${LUAROCKS_VERSION} ##"
             cd ${BUILD_DIR}
             wget https://luarocks.org/releases/luarocks-${LUAROCKS_VERSION}.tar.gz
@@ -304,38 +262,41 @@ phases:
             sudo make
             sudo make install
 
-            sudo rm -rf ${BUILD_DIR}/lua-${LUA_DOWNLOAD_VERSION}.tar.gz
-            sudo rm -rf ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}.tar.gz
-
-            echo ""
             echo "## Installing luarocks rocks ##"
             # install additional lua modules required by lua-resty-openidc
             # https://github.com/zmartzone/lua-resty-openidc
-            sudo /usr/local/bin/luarocks install lua-cjson
-            sudo /usr/local/bin/luarocks install lua-resty-http
-            sudo /usr/local/bin/luarocks install lua-resty-jwt
-            sudo /usr/local/bin/luarocks install lua-resty-session
-            sudo /usr/local/bin/luarocks install lua-resty-string
-            sudo /usr/local/bin/luarocks install lua-resty-openidc
-            sudo /usr/local/bin/luarocks install lua-resty-core
-            sudo /usr/local/bin/luarocks install lua-resty-hmac
+            LUA_CJSON_VER=2.1.0.6-1
+            LUA_RESTY_HTTP_VER=0.16.1-0
+            LUA_RESTY_SSL=0.8.8-1
+            LUA_RESTY_JWT_VER=0.2.3-0
+            LUA_RESTY_SESSION_VER=3.10-1
+            LUA_RESTY_STRING_VER=0.09-0
+            LUA_RESTY_OPENIDC_VER=1.7.5-1
+            LUA_RESTY_LRUCACHE_VER=0.09-2
+            LUA_RESTY_CORE_VER=0.1.17-4
+
+            sudo /usr/local/bin/luarocks install lua-cjson ${LUA_CJSON_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-http ${LUA_RESTY_HTTP_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-openssl ${LUA_RESTY_SSL}
+            sudo /usr/local/bin/luarocks install lua-resty-jwt ${LUA_RESTY_JWT_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-session ${LUA_RESTY_SESSION_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-string ${LUA_RESTY_STRING_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-openidc ${LUA_RESTY_OPENIDC_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-lrucache ${LUA_RESTY_LRUCACHE_VER}
+            sudo /usr/local/bin/luarocks install lua-resty-core ${LUA_RESTY_CORE_VER}
+
+            echo "## Copy lua libs to /usr/local ##"
             sudo cp -r ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}/lua_modules/lib/lua/${LUA_LIB_VERSION}/*.so /usr/local/lib/lua/${LUA_LIB_VERSION}/
             sudo cp -r ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}/lua_modules/share/lua/${LUA_LIB_VERSION}/resty /usr/local/share/lua/${LUA_LIB_VERSION}/
 
-            echo ""
             echo "## Copy libraries from /usr/local/lib to /lib64 ##"
-            sudo cp -f /usr/local/lib/* /lib64
+            sudo cp -rf /usr/local/lib/* /lib64
             sudo cp -rf /usr/local/lib/lua /lib64
 
-            echo ""
             echo "## Package cleanup ##"
             sudo yum remove -y ${INSTALL_PKGS}
-            sudo rm -fr ${BUILD_DIR}/lua-${LUA_DOWNLOAD_VERSION}
-            sudo rm -fr ${BUILD_DIR}/luarocks-${LUAROCKS_VERSION}
 
-            ########################################
             # </END> Nginx installation            #
-            ########################################
 
             ########################################
             # <Start> Nginx configuration          #
@@ -365,10 +326,12 @@ phases:
             user  nginx;
             worker_processes  ${PROXY_WORKER_PROCESSES};
 
-            error_log  ${PROXY_LOGS_DIR}/nginx-error.log debug;
+            error_log  ${PROXY_LOGS_DIR}/nginx-error.log error;
 
             events {
-              worker_connections  ${PROXY_WORKER_CONNECTIONS};
+              use epoll;
+              worker_connections ${PROXY_WORKER_CONNECTIONS};
+              multi_accept on;
             }
 
             http {
@@ -379,8 +342,15 @@ phases:
                               'up_head_time="\$upstream_header_time" up_res_time="\$upstream_response_time" '
                               'up_status=\$upstream_status up_bytes_s=\$upstream_bytes_sent up_bytes_r=\$upstream_bytes_received';
 
-              error_log ${PROXY_LOGS_DIR}/http-error.log debug;
-              access_log ${PROXY_LOGS_DIR}/http-access.log main;
+              # configure conditional logging
+              # do not log 2XX or 3XX HTTP Status codes in the access log
+              map \$status \$loggable {
+                  ~^[23]  0;
+                  default 1;
+              }
+
+              error_log ${PROXY_LOGS_DIR}/http-error.log error;
+              access_log ${PROXY_LOGS_DIR}/http-access.log main if=\$loggable;
 
               sendfile on;
 
@@ -398,6 +368,16 @@ phases:
                 ssl_certificate_key ${PROXY_CERTS_DIR}/serverkey.pem;
                 ssl_protocols       TLSv1 TLSv1.1 TLSv1.2;
                 ssl_ciphers         HIGH:!aNULL:!MD5;
+
+                location /nginx_status {
+                  add_header Content-Type application/json;
+                  return 200 '{\r
+                    "connections_active": \$connections_active,\r
+                    "connections_reading": \$connections_reading,\r
+                    "connections_writing": \$connections_writing,\r
+                    "connections_waiting": \$connections_waiting\r
+                  }';
+                }
 
                 location / { 
                   # timeout values for the websockify connection
@@ -560,8 +540,8 @@ phases:
             sudo cp -f /lib64/libluajit-5.1.so.2 "${JAIL_BASE_DIR}/lib64/libluajit-5.1.so.2"
             sudo cp -f /lib64/libm.so.6 "${JAIL_BASE_DIR}/lib64/libm.so.6"
             sudo cp -f /lib64/libpcre.so.1 "${JAIL_BASE_DIR}/lib64/libpcre.so.1"
-            sudo cp -f /lib64/libssl.so.10 "${JAIL_BASE_DIR}/lib64/libssl.so.10"
-            sudo cp -f /lib64/libcrypto.so.10 "${JAIL_BASE_DIR}/lib64/libcrypto.so.10"
+            sudo cp -f /lib64/libssl.so.1.1 "${JAIL_BASE_DIR}/lib64/libssl.so.1.1"
+            sudo cp -f /lib64/libcrypto.so.1.1 "${JAIL_BASE_DIR}/lib64/libcrypto.so.1.1"
             sudo cp -f /lib64/libz.so.1 "${JAIL_BASE_DIR}/lib64/libz.so.1"
             sudo cp -f /lib64/libc.so.6 "${JAIL_BASE_DIR}/lib64/libc.so.6"
             sudo cp -f /lib64/ld-linux-x86-64.so.2 "${JAIL_BASE_DIR}/lib64/ld-linux-x86-64.so.2"
@@ -591,102 +571,6 @@ phases:
             # set permissions on certs directory
             sudo chmod -R u+r,u-wx,g-rwx,o-rwx "${JAIL_BASE_DIR}${PROXY_CERTS_DIR}"
 
-            # create the nginx pid error logrotate configuration file
-            echo "#########################################"
-            echo "Creating the nginx pid error logrotate configuration file at: ${NGINX_PID_ERROR_LOGROTATE_FILE}"
-            echo "#########################################"
-            echo ""
-
-            # remove any exisitng logrotate file
-            [ -f "${NGINX_PID_ERROR_LOGROTATE_FILE}" ] && sudo rm -f "${NGINX_PID_ERROR_LOGROTATE_FILE}"
-
-            sudo tee -a "${NGINX_PID_ERROR_LOGROTATE_FILE}" > /dev/null <<EOF
-            ${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log {
-            su root docker
-            missingok
-            notifempty
-            weekly
-            compress
-                delaycompress # Workaround for files being incorrectly removed
-            create 0644 root root
-            rotate 20
-            size=30M
-            postrotate
-                /usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
-            endscript
-                sharedscripts
-            }
-            EOF
-
-            echo ""
-            echo "Verify ${NGINX_PID_ERROR_LOGROTATE_FILE} exists?"
-            [ -f "${NGINX_PID_ERROR_LOGROTATE_FILE}" ] && echo exists!
-            echo ""
-
-            # create the nginx http error logrotate configuration file
-            echo "#########################################"
-            echo "Creating the nginx http error logrotate configuration file at: ${NGINX_HTTP_ERROR_LOGROTATE_FILE}"
-            echo "#########################################"
-            echo ""
-
-            # remove any exisitng logrotate file
-            [ -f "${NGINX_HTTP_ERROR_LOGROTATE_FILE}" ] && sudo rm -f "${NGINX_HTTP_ERROR_LOGROTATE_FILE}"
-
-            sudo tee -a "${NGINX_HTTP_ERROR_LOGROTATE_FILE}" > /dev/null <<EOF
-            ${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log {
-            su root docker
-            missingok
-            notifempty
-            weekly
-            compress
-                delaycompress # Workaround for files being incorrectly removed
-            create 0644 root root
-            rotate 20
-            size=30M
-            postrotate
-                /usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
-            endscript
-                sharedscripts
-            }
-            EOF
-
-            echo ""
-            echo "Verify ${NGINX_HTTP_ERROR_LOGROTATE_FILE} exists?"
-            [ -f "${NGINX_HTTP_ERROR_LOGROTATE_FILE}" ] && echo exists!
-            echo ""
-
-            # create the nginx http access logrotate configuration file
-            echo "#########################################"
-            echo "Creating the nginx http access logrotate configuration file at: ${NGINX_HTTP_ACCESS_LOGROTATE_FILE}"
-            echo "#########################################"
-            echo ""
-
-            # remove any exisitng logrotate file
-            [ -f "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}" ] && sudo rm -f "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}"
-
-            sudo tee -a "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}" > /dev/null <<EOF
-            ${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log {
-            su root docker
-            missingok
-            notifempty
-            weekly
-            compress
-                delaycompress # Workaround for files being incorrectly removed
-            create 0644 root root
-            rotate 20
-            size=30M
-            postrotate
-                /usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
-            endscript
-                sharedscripts
-            }
-            EOF
-
-            echo ""
-            echo "Verify ${NGINX_HTTP_ACCESS_LOGROTATE_FILE} exists?"
-            [ -f "${NGINX_HTTP_ACCESS_LOGROTATE_FILE}" ] && echo exists!
-            echo ""
-
             # create the nginx service file
             echo "#########################################"
             echo "Creating the nginx service file at: ${NGINX_SERVICE_FILE}"
@@ -705,11 +589,14 @@ phases:
             [Service]
             Type=forking
             PIDFile=/nginx/var/run/nginx.pid
-            ExecStartPre=/usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -t
+            ExecStartPre=${NGINX_ENVVARS_FILE}
             ExecStart=/usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx
             ExecReload=/usr/sbin/chroot ${JAIL_BASE_DIR} /usr/sbin/nginx -s reload
             ExecStop=/bin/kill -s QUIT $MAINPID
             PrivateTmp=true
+            Restart=always
+            RestartSec=5
+            StartLimitInterval=0
 
             [Install]
             WantedBy=multi-user.target
@@ -726,7 +613,7 @@ phases:
             echo "#########################################"
             echo ""
 
-            # remove any exisitng service file
+            # remove any exisitng file
             sudo [ -f "${NGINX_ENVVARS_FILE}" ] && sudo rm -f "${NGINX_ENVVARS_FILE}"
 
             sudo tee -a "${NGINX_ENVVARS_FILE}" > /dev/null <<EOF
@@ -735,17 +622,25 @@ phases:
             # and write the IP Address into the nginx.conf file to be used as the upstream address.
             # Nginx can have trouble resolving the AWS Network Load Balancer IP Address when using the hostname
             # as the upstream so the IP Address is a safer approach for this example project.
+            # Additionally, we grab the number of CPU cores in order to set the desired number of
+            # NGINX worker process; 1 worker process per CPU core
             AWS_REGION=\$(curl --silent http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
             ELB_DNS_NAME=\$(aws elbv2 describe-load-balancers --names @@AWS_NLB_NAME@@ --region \${AWS_REGION} --query 'LoadBalancers[0].DNSName' --output text)
             ELB_IP_ADDRESS=\$(dig +short \${ELB_DNS_NAME})
+            # get the number of cpu cores
+            NUM_CPU_CORES=\$(getconf _NPROCESSORS_ONLN)
+            if [ -z "\${NUM_CPU_CORES}" ]
+            then
+              NUM_CPU_CORES="${PROXY_WORKER_PROCESSES}"
+            fi
 
-            sudo [ ! -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original" ] && sudo cp -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original"
+            [ ! -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original" ] && sudo cp -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original"
 
-            sudo cp -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
+            cp -f "${JAIL_BASE_DIR}${PROXY_CONF_FILE}.original" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
 
-            sudo sed -i -e "s/%%AWS_NLB_IP_ADDRESS%%/\${ELB_IP_ADDRESS}/g" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
+            sed -i -e "s/%%AWS_NLB_IP_ADDRESS%%/\${ELB_IP_ADDRESS}/g" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
 
-            sudo systemctl is-active --quiet nginx && sudo service nginx restart
+            sed -i -e "s/worker_processes  ${PROXY_WORKER_PROCESSES};/worker_processes  \${NUM_CPU_CORES};/g" "${JAIL_BASE_DIR}${PROXY_CONF_FILE}"
             EOF
 
             sudo chmod +x ${NGINX_ENVVARS_FILE}
@@ -753,28 +648,6 @@ phases:
             echo ""
             echo "Verify ${NGINX_ENVVARS_FILE} exists?"
             [ -f "${NGINX_ENVVARS_FILE}" ] && echo exists!
-            echo ""
-
-            # remove any existing nginx envvars service file
-            [ -f "${NGINX_ENVVARS_SERVICE_FILE}" ] && sudo rm -f "${NGINX_ENVVARS_SERVICE_FILE}"
-
-            sudo tee -a "${NGINX_ENVVARS_SERVICE_FILE}" > /dev/null <<EOF
-            [Unit]
-            Description=Script which updates nginx config with the upstream AWS NLB IP Address
-            After=syslog.target network-online.target remote-fs.target nss-lookup.target nginx.service
-            Wants=network-online.target
-
-            [Service]
-            Type=simple
-            ExecStart=/bin/bash ${NGINX_ENVVARS_FILE}
-
-            [Install]
-            WantedBy=multi-user.target
-            EOF
-
-            echo ""
-            echo "Verify ${NGINX_ENVVARS_SERVICE_FILE} exists?"
-            [ -f "${NGINX_ENVVARS_SERVICE_FILE}" ] && echo exists!
             echo ""
 
             echo "#########################################"
@@ -785,13 +658,170 @@ phases:
             sudo rm -f "/usr/sbin/nginx"
 
             echo "#########################################"
-            echo "Allow Nginx to bind to the private IP of an EC2 instance"
+            echo "Write IPv4 changes to /etc/sysctl.conf"
             echo "#########################################"
             echo ""
+            echo "Allow Nginx to bind to the private IP of an EC2 instance"
             echo "" | sudo tee -a /etc/sysctl.conf
             echo "# allow processes to bind to the non-local address" | sudo tee -a /etc/sysctl.conf
             echo "net.ipv4.ip_nonlocal_bind = 1" | sudo tee -a /etc/sysctl.conf
+
+            echo "Explicitly define kernel process ports to prevent NGINX port conflicts"
+            echo "" | sudo tee -a /etc/sysctl.conf
+            echo "# explictly define the range of ports to be used by kernel processes" | sudo tee -a /etc/sysctl.conf
+            echo "net.ipv4.ip_local_port_range = ${KERNEL_PORTS_RANGE_START} ${KERNEL_PORTS_RANGE_END}" | sudo tee -a /etc/sysctl.conf
+
+            echo "Explicitly define NGINX ports so they are not allocated to other processes"
+            echo "" | sudo tee -a /etc/sysctl.conf
+            echo "# explicitly define NGINX ports so they are not allocated to other processes" | sudo tee -a /etc/sysctl.conf
+            echo "net.ipv4.ip_local_reserved_ports = ${WSS_PROXY_BIND_PORT},${OAUTH_PROXY_BIND_PORT}" | sudo tee -a /etc/sysctl.conf
+            
+            echo "Enable the /etc/sysctl.conf IPv4 changes"
             sudo sysctl -p /etc/sysctl.conf
+
+            echo "Configure nginx custom metrics"
+
+            # create the NGINX metrics folder and set permissions
+            sudo mkdir -p "${NGINX_METRICS_DIR}"
+            sudo chmod -R 775 "${NGINX_METRICS_DIR}"
+
+            # remove any exisitng process monitor service file
+            [ -f "${NGINX_METRICS_FILE}" ] && sudo rm -f "${NGINX_METRICS_FILE}"
+
+            sudo tee -a "${NGINX_METRICS_FILE}" > /dev/null <<EOF
+            import boto3
+            import requests
+            import time
+            import traceback
+
+            NGINX_STATUS_URL="https://localhost:${WSS_PROXY_BIND_PORT}/nginx_status"
+            INVALID_STATUS_CODE="INVALID_STATUS_CODE"
+            POLLING_LOOP_START_DELAY=${METRIC_POLLING_LOOP_START_DELAY}
+            POLLING_LOOP_INTERVAL=${METRIC_POLLING_LOOP_INTERVAL}
+
+            def get_region():
+                response = requests.get('http://169.254.169.254/latest/dynamic/instance-identity/document')
+                return response.json()['region']
+
+            def get_instance_id():
+                response = requests.get('http://169.254.169.254/latest/meta-data/instance-id')
+                return response.text
+
+            def get_ami_id():
+                response = requests.get('http://169.254.169.254/latest/meta-data/ami-id')
+                return response.text
+
+            def get_nginx_status():
+                response = requests.get(
+                    url=NGINX_STATUS_URL,
+                    verify=False
+                )
+                if response.status_code != 200:
+                    print(f"{NGINX_STATUS_URL} responded with HTTP STATUS CODE {response.status_code}")
+                    return INVALID_STATUS_CODE
+                return response.json()
+
+            def write_metrics(status_map: dict):
+                cloudwatch_client = boto3.client('cloudwatch', region_name=get_region())
+
+                print(status_map)
+
+                for metric_name, metric_value in status_map.items():
+                    response = cloudwatch_client.put_metric_data(
+                        MetricData = [
+                            {
+                                'MetricName': metric_name,
+                                'Dimensions': [
+                                    {
+                                        'Name': 'INSTANCE_ID',
+                                        'Value': get_instance_id()
+                                    },
+                                    {
+                                        'Name': 'AMI_ID',
+                                        'Value': get_ami_id()
+                                    },
+                                ],
+                                'Unit': 'Count',
+                                'Value': metric_value
+                            },
+                        ],
+                        Namespace='NGINX'
+                    )
+
+
+            def metric_polling_loop():
+
+                print(f"Inital delay {POLLING_LOOP_START_DELAY} before starting poll operations")
+                time.sleep(POLLING_LOOP_START_DELAY)
+
+                # enter infinite loop which gathers and writes metrics
+                while True:
+                    print("Beginning polling process")
+                    try:
+                        status_map = {}
+                        print("Getting NGINX status")
+                        status = get_nginx_status()
+
+                        if status != INVALID_STATUS_CODE:
+                            status_map['ConnectionsActive'] = status['connections_active']
+                            status_map['ConnectionsReading'] = status['connections_reading']
+                            status_map['ConnectionsWriting'] = status['connections_writing']
+                            status_map['ConnectionsWaiting'] = status['connections_waiting']
+
+                            write_metrics(status_map=status_map)
+                        else:
+                            raise ValueError(f"Invalid status code from NGINX status method: {status}")
+                    except Exception as e:
+                        traceback.print_exception(type(e), value=e, tb=e.__traceback__)
+                    finally: 
+                        # sleep until next poll
+                        print(f"Sleeping {POLLING_LOOP_INTERVAL} until next status poll")
+                        time.sleep(POLLING_LOOP_INTERVAL)
+
+
+            metric_polling_loop()
+            EOF
+
+            echo "Configure nginx metrics launch script"
+
+            # remove any exisitng nginx metric launch script file
+            [ -f "${NGINX_METRICS_LAUNCH_FILE}" ] && sudo rm -f "${NGINX_METRICS_LAUNCH_FILE}"
+
+            sudo tee -a "${NGINX_METRICS_LAUNCH_FILE}" > /dev/null <<EOF
+            #!/bin/bash
+
+            cd "${NGINX_METRICS_DIR}"
+            python3 -m venv .env
+            source .env/bin/activate
+            pip install boto3 requests
+            python "${NGINX_METRICS_FILE}"
+            EOF
+
+            # set execute permissions on the nginx metrics launch script file
+            sudo chmod u+rwx,g+rx,o+rx "${NGINX_METRICS_LAUNCH_FILE}"
+
+            # remove any exisitng nginx metrics service file
+            [ -f "${NGINX_METRICS_SERVICE_FILE}" ] && sudo rm -f "${NGINX_METRICS_SERVICE_FILE}"
+
+            sudo tee -a "${NGINX_METRICS_SERVICE_FILE}" > /dev/null <<EOF
+            [Unit]
+            Description=Custom CloudWatch Metric Collector for NGINX
+            After=syslog.target network-online.target remote-fs.target nss-lookup.target nginx.service
+            Wants=network-online.target
+
+            [Service]
+            Type=simple
+            PIDFile=/var/run/nginx-metrics.pid
+            ExecStart=${NGINX_METRICS_LAUNCH_FILE}
+            ExecStop=/bin/kill -s QUIT \$MAINPID
+            PrivateTmp=true
+            Restart=always
+            RestartSec=5
+            StartLimitInterval=0
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
 
             echo "#########################################"
             echo "Configure nginx as a service"
@@ -799,57 +829,71 @@ phases:
             echo ""
             sudo systemctl daemon-reload
             sudo systemctl enable nginx
-            sudo systemctl enable nginx-envvars
-
-            echo "#########################################"
-            echo "Configure CloudWatch agent to capture Nginx log files"
-            echo "#########################################"
-            echo ""
+            sudo systemctl enable nginx-metrics
+            
+            echo "Configure cloudwatch agent"
 
             # install CloudWatch agent
-            sudo yum install -y amazon-cloudwatch-agent jq
+            sudo yum install -y amazon-cloudwatch-agent
 
-            if [ -f "${CLOUDWATCH_AGENT_CONF}" ]; then
-            echo "${CLOUDWATCH_AGENT_CONF} exists, appending Nginx log file settings."
-            sudo tee -a "/tmp/cw-log-config.sh" > /dev/null <<EOF
-            #!/bin/bash
-            sudo jq '.logs.logs_collected.files.collect_list += [{"file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log*", "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}", "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log"}]' "${CLOUDWATCH_AGENT_CONF}" > "${CLOUDWATCH_AGENT_CONF}.tmp" && sudo mv "${CLOUDWATCH_AGENT_CONF}.tmp" "${CLOUDWATCH_AGENT_CONF}" && sudo rm -fv "${CLOUDWATCH_AGENT_CONF}.tmp"
-            sudo jq '.logs.logs_collected.files.collect_list += [{"file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log*", "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}", "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log"}]' "${CLOUDWATCH_AGENT_CONF}" > "${CLOUDWATCH_AGENT_CONF}.tmp" && sudo mv "${CLOUDWATCH_AGENT_CONF}.tmp" "${CLOUDWATCH_AGENT_CONF}" && sudo rm -fv "${CLOUDWATCH_AGENT_CONF}.tmp"
-            sudo jq '.logs.logs_collected.files.collect_list += [{"file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log*", "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}", "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log"}]' "${CLOUDWATCH_AGENT_CONF}" > "${CLOUDWATCH_AGENT_CONF}.tmp" && sudo mv "${CLOUDWATCH_AGENT_CONF}.tmp" "${CLOUDWATCH_AGENT_CONF}" && sudo rm -fv "${CLOUDWATCH_AGENT_CONF}.tmp"
-            EOF
-            sudo chmod +x /tmp/cw-log-config.sh
-            sudo /tmp/cw-log-config.sh
-            sudo rm -fv /tmp/cw-log-config.sh
-            else 
-            echo "${CLOUDWATCH_AGENT_CONF} does not exist, creating file with Nginx log file settings."
+            # remove any exisitng process monitor service file
+            [ -f "${CLOUDWATCH_AGENT_CONF}" ] && sudo rm -f "${CLOUDWATCH_AGENT_CONF}"
+
             sudo tee -a "${CLOUDWATCH_AGENT_CONF}" > /dev/null <<EOF
             {
-              "logs":{
-                "logs_collected":{
-                  "files":{
-                    "collect_list":[
-                      {
-                      "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log*",
-                      "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
-                      "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log"
-                      },
-                      {
-                      "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log*",
-                      "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
-                      "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log"
-                      },
-                      {
-                      "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log*",
-                      "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
-                      "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log"
-                      }
-                    ]
+              "agent": {
+                "metrics_collection_interval": 60,
+                "run_as_user": "root"
+              },
+                "logs":{
+                  "logs_collected":{
+                    "files":{
+                      "collect_list":[
+                        {
+                          "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log*",
+                          "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
+                          "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/nginx-error.log"
+                        },
+                        {
+                          "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log*",
+                          "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
+                          "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-error.log"
+                        },
+                        {
+                          "file_path":"${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log*",
+                          "log_group_name":"${PROXY_CLOUDWATCH_LOGGROUP}",
+                          "log_stream_name":"{instance_id}${JAIL_BASE_DIR}${PROXY_LOGS_DIR}/http-access.log"
+                        }
+                      ]
+                    }
                   }
+                }
+              },
+              "metrics": {
+                "append_dimensions": {
+                  "ImageID": "\${aws:ImageId}",
+                  "InstanceId": "\${aws:InstanceId}",
+                  "InstanceType": "\${aws:InstanceType}"
+                },
+                "metrics_collected": {
+                  "procstat": [
+                    {
+                      "exe": "${JAIL_BASE_DIR}/usr/sbin/nginx",
+                      "measurement": [
+                        "cpu_usage",
+                        "memory_rss",
+                        "memory_vms",
+                        "read_bytes",
+                        "write_bytes",
+                        "read_count",
+                        "write_count"
+                      ]
+                    }
+                  ]
                 }
               }
             }
             EOF
-            fi
 
             echo "#########################################"
             echo "Starting the CloudWatch agent with config file ${CLOUDWATCH_AGENT_CONF}"
@@ -861,3 +905,6 @@ phases:
             ########################################
             # </END> Nginx configuration           #
             ########################################
+
+            # final cleanup
+            sudo rm -fr ${BUILD_DIR}/*
