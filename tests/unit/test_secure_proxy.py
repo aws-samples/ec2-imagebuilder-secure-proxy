@@ -291,7 +291,7 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     ## <START> AWS Elastic Load Balancer tests
     ##################################################
-    def test_secure_proxy_imagebuilder_instance_profile_created(self):
+    def test_secure_proxy_loadbalancer_created(self):
         expect(self.cfn_template).to(
             contain_metadata_path(self.elastic_load_balancer, "secure-proxy-elb"
             )
@@ -408,19 +408,17 @@ class TestSecureProxyStack(tc.BaseTestCase):
     ##################################################
     ## <START> State Machine tests
     ##################################################
-
     def test_ami_share_state_machine(self):
         expect(self.cfn_template).to(
             contain_metadata_path(self.state_machine, "secure-proxy-state-machine"))
-
     ##################################################
     ## </END> State Machine tests
     ##################################################
 
+
     ##################################################
     ## <START> Lambda function test
     ##################################################
-
     def test_entry_point_role(self):
         expect(self.cfn_template).to(contain_metadata_path(self.iam_role, "secure-proxy-entry-point-role"))
 
