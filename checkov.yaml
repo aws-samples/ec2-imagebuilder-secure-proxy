@@ -6,4 +6,13 @@ framework: cloudformation
 output: cli
 directory:
   - cdk.out
+skip-download: true
+quiet: true
+compact: true
 skip-check:
+  - CKV_AWS_91    # Ensure the ELBv2 (Application/Network) has access logging enabled
+  - CKV_AWS_107   # Ensure IAM policies does not allow credentials exposure
+  - CKV_AWS_109   # Ensure IAM policies does not allow permissions management without constraints
+  - CKV_AWS_110   # Ensure IAM policies does not allow privilege escalation"
+  - CKV_AWS_111   # Ensure IAM policies does not allow write access without constraints
+  - CKV_AWS_116   # Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)
