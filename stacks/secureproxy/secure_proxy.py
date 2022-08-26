@@ -1,26 +1,36 @@
-import os
-import requests
-from aws_cdk import (
-    core,
-    aws_imagebuilder as imagebuilder,
-    aws_iam as iam,
-    aws_s3_assets as assets,
-    aws_sns as sns,
-    aws_ec2 as ec2,
-    aws_elasticloadbalancingv2 as elb,
-    aws_stepfunctions as stepfunctions,
-    aws_stepfunctions_tasks as stepfunctions_tasks,
-    aws_lambda as _lambda,
-    aws_ssm as ssm,
-    aws_kms as kms,
-    aws_logs as logs
-)
+#!/usr/bin/env python
 
+"""
+    secure_proxy.py:
+    CDK stack which creates the AWS network infrastructure
+    required by the ec2-imagebuilder-secure-proxy project.
+"""
+
+import os
+
+import requests
+from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_elasticloadbalancingv2 as elb
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_imagebuilder as imagebuilder
+from aws_cdk import aws_kms as kms
+from aws_cdk import aws_lambda as _lambda
+from aws_cdk import aws_logs as logs
+from aws_cdk import aws_s3_assets as assets
+from aws_cdk import aws_sns as sns
+from aws_cdk import aws_ssm as ssm
+from aws_cdk import aws_stepfunctions as stepfunctions
+from aws_cdk import aws_stepfunctions_tasks as stepfunctions_tasks
+from aws_cdk import core
 from utils.CdkUtils import CdkUtils
 from utils.FileUtils import FileUtils
 
 
 class SecureProxyStack(core.Stack):
+    """
+        CDK stack which creates the AWS network infrastructure
+        required by the ec2-imagebuilder-secure-proxy project.
+    """
 
     def __init__(self, scope: core.Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
