@@ -16,8 +16,10 @@ from aws_cdk import aws_imagebuilder as imagebuilder
 from aws_cdk import aws_kms as kms
 from aws_cdk import aws_lambda as _lambda
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_assets as assets
 from aws_cdk import aws_sns as sns
+from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_stepfunctions as stepfunctions
 from aws_cdk import aws_stepfunctions_tasks as stepfunctions_tasks
@@ -157,8 +159,25 @@ class SecureProxyStack(core.Stack):
             deletion_protection=False
         )
 
+        nlb_access_logs_bucket = s3.Bucket(
+            self,
+            "NlbAccessLogsBucket",
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=core.RemovalPolicy.DESTROY,
+            public_read_access=False,
+            auto_delete_objects=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            versioned=True
+        )
+
+        secure_proxy_elb.log_access_logs(
+            bucket=nlb_access_logs_bucket,
+            prefix="nlb-access-logs"
+        )
+
         ##################################################
-        ## </END> Network prequisites
+        ## </END> Network prerequisites
         ##################################################
 
         ##################################################
@@ -551,6 +570,12 @@ class SecureProxyStack(core.Stack):
 
         dirname = os.path.dirname(__file__)
 
+        dead_letter_queue = sqs.Queue(
+            self,
+            'DeadLetterQueue',
+            encryption_master_key=secure_proxy_kms_key
+        )
+
         ## ENTRY_POINT lambda and role ##
         entry_point_role = iam.Role(
             self, "secure-proxy-entry-point-role",
@@ -589,7 +614,8 @@ class SecureProxyStack(core.Stack):
             handler="entry_point.lambda_handler",
             role=entry_point_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(1)
+            timeout=core.Duration.minutes(1),
+            dead_letter_queue=dead_letter_queue
         )
 
         ## POLL AMI STATUS lambda and role ##
@@ -623,7 +649,8 @@ class SecureProxyStack(core.Stack):
             handler="poll_ami_status.lambda_handler",
             role=poll_ami_status_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(1)
+            timeout=core.Duration.minutes(1),
+            dead_letter_queue=dead_letter_queue
         )
 
         ## GET AMI DETAILS lambda and role ##
@@ -657,7 +684,8 @@ class SecureProxyStack(core.Stack):
             handler="get_ami_details.lambda_handler",
             role=get_ami_details_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(1)
+            timeout=core.Duration.minutes(1),
+            dead_letter_queue=dead_letter_queue
         )
 
         ## CREATE SECURE PROXY lambda and role ##
@@ -680,15 +708,249 @@ class SecureProxyStack(core.Stack):
 
         create_secure_proxy_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
-            resources=["*"],
+            resources=[
+                f"arn:aws:ec2:{self.region}:{self.account}:network-insights-access-scope/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:subnet/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway-route-table-announcement/*",
+                f"arn:aws:ec2::{self.account}:ipam-scope/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:capacity-reservation-fleet/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpn-connection-device-type/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:spot-fleet-request/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:reserved-instances/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpn-connection/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:export-instance-task/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:elastic-ip/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:security-group-rule/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:replace-root-volume-task/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:launch-template/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:client-vpn-endpoint/*",
+                f"arn:aws:ec2::{self.account}:ipam/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway-policy-table/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway-connect-peer/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:network-insights-access-scope-analysis/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway-route-table/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:dhcp-options/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:instance-event-window/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:dedicated-host/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:export-image-task/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:local-gateway-route-table/*",
+                f"arn:aws:license-manager:{self.region}:{self.account}:license-configuration/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:carrier-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:prefix-list/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:ipv4pool-ec2/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:egress-only-internet-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:traffic-mirror-session/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway-multicast-domain/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpc-endpoint-service/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:placement-group/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:local-gateway-route-table-vpc-association/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:natgateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:traffic-mirror-filter/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:network-insights-path/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:elastic-gpu/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway-attachment/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:fleet/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:local-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:security-group/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:local-gateway-virtual-interface/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:ipv6pool-ec2/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:volume/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpc-flow-log/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpc-peering-connection/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:network-insights-analysis/*",
+                "arn:aws:ec2:*::snapshot/*",
+                f"arn:aws:acm:{self.region}:{self.account}:certificate/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:customer-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:transit-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:traffic-mirror-target/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:network-acl/*",
+                f"arn:aws:resource-groups:{self.region}:{self.account}:group/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:local-gateway-virtual-interface-group/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:import-image-task/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpc-endpoint/*",
+                "arn:aws:ec2:*::image/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:capacity-reservation/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpc/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:subnet-cidr-reservation/*",
+                f"arn:aws:elastic-inference:{self.region}:{self.account}:elastic-inference-accelerator/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:network-interface/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:key-pair/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:vpn-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:internet-gateway/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:spot-instances-request/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:route-table/*",
+                f"arn:aws:ec2::{self.account}:ipam-pool/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:import-snapshot-task/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:host-reservation/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:instance/*",
+                "arn:aws:ec2:*::fpga-image/*",
+                f"arn:aws:ec2:{self.region}:{self.account}:local-gateway-route-table-virtual-interface-group-association/*"
+            ],
             actions=[
-                "ec2:*"
+                "ec2:Describe*",
+                "ec2:Search*",
+                "ec2:List*",
+                "ec2:CreateTags",
+                "ec2:RunInstances",
+                "ec2:Get*"
             ]
         ))
 
         create_secure_proxy_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             resources=["*"],
+            actions=[
+                "ec2:DescribeInstances",
+                "ec2:GetEbsEncryptionByDefault",
+                "ec2:DescribeCoipPools",
+                "ec2:DescribeSnapshots",
+                "ec2:DescribeLocalGatewayVirtualInterfaces",
+                "ec2:DescribeNetworkInsightsPaths",
+                "ec2:DescribeHostReservationOfferings",
+                "ec2:DescribeTrafficMirrorSessions",
+                "ec2:DescribeExportImageTasks",
+                "ec2:DescribeTrafficMirrorFilters",
+                "ec2:DescribeVolumeStatus",
+                "ec2:DescribeLocalGatewayRouteTableVpcAssociations",
+                "ec2:DescribeScheduledInstanceAvailability",
+                "ec2:DescribeVolumes",
+                "ec2:GetEbsDefaultKmsKeyId",
+                "ec2:DescribeExportTasks",
+                "ec2:DescribeTransitGatewayMulticastDomains",
+                "ec2:DescribeManagedPrefixLists",
+                "ec2:DescribeKeyPairs",
+                "ec2:DescribeReservedInstancesListings",
+                "ec2:DescribeCapacityReservations",
+                "ec2:DescribeVpcClassicLinkDnsSupport",
+                "ec2:DescribeIdFormat",
+                "ec2:DescribeFastSnapshotRestores",
+                "ec2:DescribeInstanceEventWindows",
+                "ec2:DescribeImportSnapshotTasks",
+                "ec2:DescribeLocalGatewayVirtualInterfaceGroups",
+                "ec2:DescribeVpcEndpointServicePermissions",
+                "ec2:DescribeTransitGatewayAttachments",
+                "ec2:GetAssociatedIpv6PoolCidrs",
+                "ec2:DescribeScheduledInstances",
+                "ec2:DescribeTrunkInterfaceAssociations",
+                "ec2:GetSpotPlacementScores",
+                "ec2:DescribeIpv6Pools",
+                "ec2:DescribeReservedInstancesModifications",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeMovingAddresses",
+                "ec2:DescribeCapacityReservationFleets",
+                "ec2:DescribePrincipalIdFormat",
+                "ec2:DescribeFlowLogs",
+                "ec2:DescribeRegions",
+                "ec2:GetNetworkInsightsAccessScopeAnalysisFindings",
+                "ec2:DescribeTransitGateways",
+                "ec2:DescribeVpcEndpointServices",
+                "ec2:DescribeSpotInstanceRequests",
+                "ec2:DescribeInstanceTypeOfferings",
+                "ec2:DescribeTrafficMirrorTargets",
+                "ec2:DescribeTransitGatewayRouteTables",
+                "ec2:DescribeAvailabilityZones",
+                "ec2:DescribeNetworkInterfaceAttribute",
+                "ec2:DescribeLocalGatewayRouteTables",
+                "ec2:DescribeVpcEndpointConnections",
+                "ec2:SearchTransitGatewayMulticastGroups",
+                "ec2:DescribeInstanceStatus",
+                "ec2:DescribeHostReservations",
+                "ec2:DescribeBundleTasks",
+                "ec2:DescribeIdentityIdFormat",
+                "ec2:DescribeClassicLinkInstances",
+                "ec2:DescribeTransitGatewayConnects",
+                "ec2:DescribeIpamPools",
+                "ec2:DescribeVpcEndpointConnectionNotifications",
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeFpgaImages",
+                "ec2:DescribeVpcs",
+                "ec2:DescribeIpams",
+                "ec2:DescribeStaleSecurityGroups",
+                "ec2:DescribeAggregateIdFormat",
+                "ec2:DescribeVolumesModifications",
+                "ec2:DescribeTransitGatewayRouteTableAnnouncements",
+                "ec2:GetHostReservationPurchasePreview",
+                "ec2:DescribeTransitGatewayConnectPeers",
+                "ec2:DescribeByoipCidrs",
+                "ec2:DescribeNetworkInsightsAnalyses",
+                "ec2:DescribePlacementGroups",
+                "ec2:DescribeInternetGateways",
+                "ec2:GetSerialConsoleAccessStatus",
+                "ec2:DescribeSpotDatafeedSubscription",
+                "ec2:DescribeAccountAttributes",
+                "ec2:DescribeNetworkInterfacePermissions",
+                "ec2:DescribeReservedInstances",
+                "ec2:DescribeNetworkAcls",
+                "ec2:DescribeRouteTables",
+                "ec2:DescribeEgressOnlyInternetGateways",
+                "ec2:DescribeLaunchTemplates",
+                "ec2:DescribeVpnConnections",
+                "ec2:DescribeVpcPeeringConnections",
+                "ec2:DescribeReservedInstancesOfferings",
+                "ec2:GetTransitGatewayAttachmentPropagations",
+                "ec2:GetNetworkInsightsAccessScopeContent",
+                "ec2:DescribeSnapshotTierStatus",
+                "ec2:DescribeVpcEndpointServiceConfigurations",
+                "ec2:DescribePrefixLists",
+                "ec2:GetReservedInstancesExchangeQuote",
+                "ec2:DescribeInstanceCreditSpecifications",
+                "ec2:DescribeVpcClassicLink",
+                "ec2:DescribeLocalGatewayRouteTableVirtualInterfaceGroupAssociations",
+                "ec2:GetInstanceTypesFromInstanceRequirements",
+                "ec2:DescribeSecurityGroupRules",
+                "ec2:GetTransitGatewayRouteTablePropagations",
+                "ec2:DescribeInstanceTypes",
+                "ec2:DescribeVpcEndpoints",
+                "ec2:DescribeElasticGpus",
+                "ec2:DescribeVpnGateways",
+                "ec2:DescribeTransitGatewayPolicyTables",
+                "ec2:DescribeTransitGatewayPeeringAttachments",
+                "ec2:GetDefaultCreditSpecification",
+                "ec2:DescribeAddresses",
+                "ec2:DescribeIpamScopes",
+                "ec2:DescribeDhcpOptions",
+                "ec2:GetSubnetCidrReservations",
+                "ec2:DescribeSpotPriceHistory",
+                "ec2:DescribeNetworkInterfaces",
+                "ec2:DescribeNetworkInsightsAccessScopeAnalyses",
+                "ec2:DescribeCarrierGateways",
+                "ec2:GetTransitGatewayRouteTableAssociations",
+                "ec2:DescribeLocalGatewayRouteTablePermissions",
+                "ec2:DescribeIamInstanceProfileAssociations",
+                "ec2:DescribeNetworkInsightsAccessScopes",
+                "ec2:DescribeTags",
+                "ec2:GetCoipPoolUsage",
+                "ec2:DescribeReplaceRootVolumeTasks",
+                "ec2:DescribeLaunchTemplateVersions",
+                "ec2:GetVpnConnectionDeviceTypes",
+                "ec2:DescribeImportImageTasks",
+                "ec2:GetTransitGatewayPrefixListReferences",
+                "ec2:DescribeNatGateways",
+                "ec2:DescribeCustomerGateways",
+                "ec2:DescribeInstanceEventNotificationAttributes",
+                "ec2:DescribeLocalGateways",
+                "ec2:DescribeSpotFleetRequests",
+                "ec2:DescribeHosts",
+                "ec2:DescribeImages",
+                "ec2:DescribeSecurityGroupReferences",
+                "ec2:DescribePublicIpv4Pools",
+                "ec2:DescribeTransitGatewayVpcAttachments",
+                "ec2:GetTransitGatewayMulticastDomainAssociations",
+                "ec2:DescribeConversionTasks"
+            ]
+        ))
+        
+        create_secure_proxy_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.DENY,
+            resources=["*"],
+            actions=[
+                "ec2:GetPasswordData"
+            ]
+        ))
+
+        create_secure_proxy_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            resources=[f"arn:aws:iam::{self.account}:role/*"],
             actions=[
                 "iam:PassRole"
             ]
@@ -701,7 +963,8 @@ class SecureProxyStack(core.Stack):
             handler="create_secure_proxy.lambda_handler",
             role=create_secure_proxy_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(15)
+            timeout=core.Duration.minutes(15),
+            dead_letter_queue=dead_letter_queue
         )
 
 
@@ -779,7 +1042,7 @@ class SecureProxyStack(core.Stack):
 
         create_mock_servers_asg_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
-            resources=["*"],
+            resources=[f"arn:aws:iam::{self.account}:role/*"],
             actions=[
                 "iam:PassRole"
             ]
@@ -792,7 +1055,8 @@ class SecureProxyStack(core.Stack):
             handler="create_mock_servers_asg.lambda_handler",
             role=create_mock_servers_asg_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(15)
+            timeout=core.Duration.minutes(15),
+            dead_letter_queue=dead_letter_queue
         )
 
         ##################################################

@@ -20,10 +20,10 @@ setuptools.setup(
     packages=setuptools.find_packages(where="ec2_imagebuilder_secure_proxy"),
 
     install_requires=[
-        "aws-cdk.core==1.154.0",
+        "aws-cdk.core==1.165.0",
     ],
 
-    python_requires=">=3.6",
+    python_requires=">=3.8",
 
     classifiers=[
         "Development Status :: 4 - Beta",

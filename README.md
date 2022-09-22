@@ -82,7 +82,7 @@ For production usage, customers may wish to consider the use of [AWS Certificate
 
 # Deploying the solution
 
-The solution code uses the Python flavour of the AWS CDK ([Cloud Development Kit](https://aws.amazon.com/cdk/)). In order to execute the solution code, please ensure that you have fulfilled the [AWS CDK Prerequisites for Python](https://docs.aws.amazon.com/cdk/latest/guide/work-with-cdk-python.html).
+The solution code uses the Python flavour of the AWS CDK ([Cloud Development Kit](https://aws.amazon.com/cdk/)). In order to execute the solution code, please ensure that you have fulfilled the [AWS CDK Prerequisites for Python](https://docs.aws.amazon.com/cdk/v1/guide/work-with-cdk-python.html).
 
 Additionally, the project assumes:
 
@@ -100,7 +100,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # install dependant libraries
-python -m pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # bootstrap the account to permit CDK deployments
 cdk bootstrap
@@ -197,7 +197,11 @@ Unit tests for the solution can be executed via the commands below:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-cdk synth && python -m pytest -v -c ./tests/pytest.ini
+
+# install dependant libraries
+python3 -m pip install -r requirements.txt
+
+cdk synth && python3 -m pytest -v -c ./tests/pytest.ini
 ```
 
 # Executing static code analysis tool
@@ -209,26 +213,25 @@ The static code analysis tool for the project can be executed via the commands b
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+
+# install dependant libraries
+python3 -m pip install -r requirements.txt
+
 cdk synth && checkov --config-file checkov.yaml
 ```
 
-**NOTE:** The Checkov tool has been configured to skip certain checks.
+**NOTE:** The Checkov tool has been configured to skip 2 checks.
 
 The Checkov configuration file, [checkov.yaml](checkov.yaml), contains a section named `skip-check`.
 
 ```
 skip-check:
-  - CKV_AWS_91    # Ensure the ELBv2 (Application/Network) has access logging enabled
-  - CKV_AWS_107   # Ensure IAM policies does not allow credentials exposure
-  - CKV_AWS_109   # Ensure IAM policies does not allow permissions management without constraints
-  - CKV_AWS_110   # Ensure IAM policies does not allow privilege escalation
-  - CKV_AWS_111   # Ensure IAM policies does not allow write access without constraints
+  - CKV_AWS_18    # Ensure the S3 bucket has access logging enabled
   - CKV_AWS_116   # Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)
 ```
 
-These checks represent best practices in AWS and should be enabled (or at the very least the security risk of not enabling the checks should be accepted and understood) for production systems. 
-
-In the context of this solution, these specific checks have not been remediated in order to focus on the core elements of the solution.
+* Check `CKV_AWS_18` has been skipped due to an infinite dependency issue. The solution defines an S3 bucket that is used for NLB access logs. In order to comply with this rule, the S3 bucket needs to have [server access logging enabled](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enable-server-access-logging.html). To enable server access logging, another S3 bucket is required as the destination for the server access logs. The destination bucket also needs to have server access logging enabled to comply with the rule which creates an infinite dependency issue.
+* Check `CKV_AWS_116` fails due to the `CustomS3AutoDeleteObjectsCustomResourceProviderHandler` lambda function which is created by the CDK framework as part of the [aws_s3.Bucket](https://docs.aws.amazon.com/cdk/api/v1/docs/@aws-cdk_aws-s3.Bucket.html) construct. This lambda function does not have a Dead Letter Queue defined. As this is a resource created by the CDK framework, this check is skipped.
 
 # Secure Proxy NGINX component
 

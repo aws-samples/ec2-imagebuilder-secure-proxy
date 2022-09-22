@@ -104,7 +104,7 @@ class RootTestCase(TestCase):
 
     def test_s3_bucket_encryption(self):
         assert self.get_template_str().count(f'"{self.s3_bucket}"') == \
-               self.get_template_str().count('"SSEAlgorithm":"aws:kms"') == \
+               self.get_template_str().count('"SSEAlgorithm":"AES256"') == \
                self.get_template_str().count('"ServerSideEncryptionConfiguration"') == \
                self.get_template_str().count('"BucketEncryption"')
 
