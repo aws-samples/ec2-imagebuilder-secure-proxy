@@ -122,7 +122,7 @@ pycares==4.2.0
 pycep-parser==0.3.4
 pycodestyle==2.7.0
 pycparser==2.20
-PyJWT==2.4.0
+PyJWT==2.5.0
 pyparsing==2.4.7
 pyrsistent==0.18.1
 pytest==6.2.5
