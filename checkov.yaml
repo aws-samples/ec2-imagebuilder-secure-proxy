@@ -6,7 +6,6 @@ framework: cloudformation
 output: cli
 directory:
   - cdk.out
-skip-download: true
 quiet: true
 compact: true
 skip-check:

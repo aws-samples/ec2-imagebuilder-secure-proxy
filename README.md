@@ -82,7 +82,7 @@ For production usage, customers may wish to consider the use of [AWS Certificate
 
 # Deploying the solution
 
-The solution code uses the Python flavour of the AWS CDK ([Cloud Development Kit](https://aws.amazon.com/cdk/)). In order to execute the solution code, please ensure that you have fulfilled the [AWS CDK Prerequisites for Python](https://docs.aws.amazon.com/cdk/v1/guide/work-with-cdk-python.html).
+The solution code uses the Python flavour of the AWS CDK ([Cloud Development Kit](https://aws.amazon.com/cdk/)). In order to execute the solution code, please ensure that you have fulfilled the [AWS CDK Prerequisites for Python](https://docs.aws.amazon.com/cdk/v2/guide/work-with-cdk-python.html).
 
 Additionally, the project assumes:
 
@@ -201,7 +201,7 @@ source .venv/bin/activate
 # install dependant libraries
 python3 -m pip install -r requirements.txt
 
-cdk synth && python3 -m pytest -v -c ./tests/pytest.ini
+cdk synth && python3 -m pytest
 ```
 
 # Executing static code analysis tool

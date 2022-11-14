@@ -1,9 +1,10 @@
-import boto3
 import json
 import logging
-import traceback
-import string
 import random
+import string
+import traceback
+
+import boto3
 
 # constants
 OPERATOR = "ENTRY_POINT"

@@ -1,7 +1,8 @@
-import boto3
 import json
 import logging
 import traceback
+
+import boto3
 
 # constants
 OPERATOR = "CREATE_SECURE_PROXY_INSTANCE"
