@@ -9,6 +9,7 @@
 import os
 
 import requests
+import aws_cdk as cdk
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_elasticloadbalancingv2 as elb
 from aws_cdk import aws_iam as iam
@@ -23,18 +24,18 @@ from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_stepfunctions as stepfunctions
 from aws_cdk import aws_stepfunctions_tasks as stepfunctions_tasks
-from aws_cdk import core
+from constructs import Construct
 from utils.CdkUtils import CdkUtils
 from utils.FileUtils import FileUtils
 
 
-class SecureProxyStack(core.Stack):
+class SecureProxyStack(cdk.Stack):
     """
         CDK stack which creates the AWS network infrastructure
         required by the ec2-imagebuilder-secure-proxy project.
     """
 
-    def __init__(self, scope: core.Construct, construct_id: str, **kwargs) -> None:
+    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         config = CdkUtils.get_project_settings()
@@ -63,7 +64,7 @@ class SecureProxyStack(core.Stack):
                 ec2.SubnetConfiguration(
                     name="secure-proxy-subnet-private",
                     cidr_mask=config["vpc"]["subnets"]["mask"],
-                    subnet_type=ec2.SubnetType.PRIVATE
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_NAT
                 )
             ]
         )
@@ -164,7 +165,7 @@ class SecureProxyStack(core.Stack):
             "NlbAccessLogsBucket",
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
-            removal_policy=core.RemovalPolicy.DESTROY,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
             public_read_access=False,
             auto_delete_objects=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -188,15 +189,15 @@ class SecureProxyStack(core.Stack):
         secure_proxy_kms_key = kms.Key(
             self, 
             "secure-proxy-kms-key",
-            admins=[iam.AccountPrincipal(account_id=core.Aws.ACCOUNT_ID)],
+            admins=[iam.AccountPrincipal(account_id=cdk.Aws.ACCOUNT_ID)],
             enable_key_rotation=True,
             enabled=True,
             description="KMS key used with EC2 Imagebuilder Secure Proxy project",
-            removal_policy=core.RemovalPolicy.DESTROY,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
             alias="secure-proxy-kms-key-alias"
         )
 
-        secure_proxy_kms_key.grant_encrypt_decrypt(iam.ServicePrincipal(service=f'imagebuilder.{core.Aws.URL_SUFFIX}'))
+        secure_proxy_kms_key.grant_encrypt_decrypt(iam.ServicePrincipal(service=f'imagebuilder.{cdk.Aws.URL_SUFFIX}'))
 
         # below role is assumed by the ImageBuilder ec2 instance
         secure_proxy_image_role = iam.Role(self, "secure-proxy-image-role", assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"))
@@ -211,7 +212,7 @@ class SecureProxyStack(core.Stack):
                 "logs:PutLogEvents"
             ],
             resources=[
-                core.Arn.format(components=core.ArnComponents(
+                cdk.Arn.format(components=cdk.ArnComponents(
                     service="logs",
                     resource="log-group",
                     resource_name="aws/imagebuilder/*"
@@ -222,7 +223,7 @@ class SecureProxyStack(core.Stack):
         # create an instance profile to attach the role
         instance_profile = iam.CfnInstanceProfile(
             self, "secure-proxy-imagebuilder-instance-profile",
-            instance_profile_name="secure-proxy-imagebuilder-instance-profile",
+            instance_profile_name=f"secure-proxy-imagebuilder-instance-profile-{cdk.Aws.REGION}",
             roles=[secure_proxy_image_role.role_name]
         )
 
@@ -240,7 +241,7 @@ class SecureProxyStack(core.Stack):
         )
 
         sns_topic.grant_publish(secure_proxy_image_role)
-        secure_proxy_kms_key.grant_encrypt_decrypt(iam.ServicePrincipal(service=f'sns.{core.Aws.URL_SUFFIX}'))
+        secure_proxy_kms_key.grant_encrypt_decrypt(iam.ServicePrincipal(service=f'sns.{cdk.Aws.URL_SUFFIX}'))
 
         # SG for the image build
         secure_proxy_imagebuilder_sg = ec2.SecurityGroup(
@@ -284,10 +285,10 @@ class SecureProxyStack(core.Stack):
             retention=logs.RetentionDays.TWO_WEEKS,
             encryption_key=secure_proxy_kms_key,
             log_group_name=config["proxySettings"]["proxyCloudwatchLogGroup"],
-            removal_policy=core.RemovalPolicy.DESTROY
+            removal_policy=cdk.RemovalPolicy.DESTROY
         )
 
-        secure_proxy_kms_key.grant_encrypt_decrypt(iam.ServicePrincipal(service=f'logs.{core.Aws.URL_SUFFIX}'))
+        secure_proxy_kms_key.grant_encrypt_decrypt(iam.ServicePrincipal(service=f'logs.{cdk.Aws.URL_SUFFIX}'))
 
         # grab the values for the Secure Proxy component from cdk.json
         secure_proxy_substitutions = {
@@ -342,7 +343,7 @@ class SecureProxyStack(core.Stack):
                     "componentArn": secure_proxy_component.attr_arn
                 },
                 {
-                    "componentArn": core.Arn.format(components=core.ArnComponents(
+                    "componentArn": cdk.Arn.format(components=cdk.ArnComponents(
                         service="imagebuilder",
                         resource="component",
                         resource_name="amazon-cloudwatch-agent-linux/x.x.x",
@@ -350,7 +351,7 @@ class SecureProxyStack(core.Stack):
                     ), stack=self)
                 },
                 {
-                    "componentArn": core.Arn.format(components=core.ArnComponents(
+                    "componentArn": cdk.Arn.format(components=cdk.ArnComponents(
                         service="imagebuilder",
                         resource="component",
                         resource_name="aws-cli-version-2-linux/x.x.x",
@@ -385,7 +386,7 @@ class SecureProxyStack(core.Stack):
                 imagebuilder.CfnDistributionConfiguration.DistributionProperty(
                     region=self.region,
                     ami_distribution_configuration={
-                        'Name': core.Fn.sub(f'SecureProxy-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'),
+                        'Name': cdk.Fn.sub(f'SecureProxy-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'),
                         'AmiTags': {
                             "project": "ec2-imagebuilder-secure-proxy",
                             'Pipeline': "SecureProxyPipeline"
@@ -405,7 +406,7 @@ class SecureProxyStack(core.Stack):
                 "project": "ec2-imagebuilder-secure-proxy"
             },
             description="Image Pipeline for: SecureProxyPipeline",
-            enhanced_image_metadata_enabled=True,
+            enhanced_image_metadata_enabled=False,
             image_tests_configuration=imagebuilder.CfnImagePipeline.ImageTestsConfigurationProperty(
                 image_tests_enabled=True,
                 timeout_minutes=90
@@ -418,9 +419,8 @@ class SecureProxyStack(core.Stack):
         # role to be assumed by the public Secure Proxy instances
         # this role is required to get the private IP of the AWS NLB
         secure_proxy_ec2_role = iam.Role(
-            self, 
+            self,
             "secure-proxy-ec2-role",
-            role_name="secure-proxy-ec2-role",
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com")
         )
         secure_proxy_ec2_role.add_to_policy(iam.PolicyStatement(
@@ -486,7 +486,7 @@ class SecureProxyStack(core.Stack):
                     "componentArn": mock_servers_component.attr_arn
                 },
                 {
-                    "componentArn": core.Arn.format(components=core.ArnComponents(
+                    "componentArn": cdk.Arn.format(components=cdk.ArnComponents(
                         service="imagebuilder",
                         resource="component",
                         resource_name="amazon-cloudwatch-agent-linux/x.x.x",
@@ -494,7 +494,7 @@ class SecureProxyStack(core.Stack):
                     ), stack=self)
                 },
                 {
-                    "componentArn": core.Arn.format(components=core.ArnComponents(
+                    "componentArn": cdk.Arn.format(components=cdk.ArnComponents(
                         service="imagebuilder",
                         resource="component",
                         resource_name="aws-cli-version-2-linux/x.x.x",
@@ -529,7 +529,7 @@ class SecureProxyStack(core.Stack):
                 imagebuilder.CfnDistributionConfiguration.DistributionProperty(
                     region=self.region,
                     ami_distribution_configuration={
-                        'Name': core.Fn.sub(f'MockServers-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'),
+                        'Name': cdk.Fn.sub(f'MockServers-ImageRecipe-{{{{ imagebuilder:buildDate }}}}'),
                         'AmiTags': {
                             "project": "ec2-imagebuilder-secure-proxy",
                             "Pipeline": "MockServersPipeline"
@@ -549,7 +549,7 @@ class SecureProxyStack(core.Stack):
                 "project": "ec2-imagebuilder-secure-proxy"
             },
             description="Image Pipeline for: MockServersPipeline",
-            enhanced_image_metadata_enabled=True,
+            enhanced_image_metadata_enabled=False,
             image_tests_configuration=imagebuilder.CfnImagePipeline.ImageTestsConfigurationProperty(
                 image_tests_enabled=True,
                 timeout_minutes=90
@@ -614,7 +614,7 @@ class SecureProxyStack(core.Stack):
             handler="entry_point.lambda_handler",
             role=entry_point_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(1),
+            timeout=cdk.Duration.minutes(1),
             dead_letter_queue=dead_letter_queue
         )
 
@@ -649,7 +649,7 @@ class SecureProxyStack(core.Stack):
             handler="poll_ami_status.lambda_handler",
             role=poll_ami_status_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(1),
+            timeout=cdk.Duration.minutes(1),
             dead_letter_queue=dead_letter_queue
         )
 
@@ -684,7 +684,7 @@ class SecureProxyStack(core.Stack):
             handler="get_ami_details.lambda_handler",
             role=get_ami_details_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(1),
+            timeout=cdk.Duration.minutes(1),
             dead_letter_queue=dead_letter_queue
         )
 
@@ -963,7 +963,7 @@ class SecureProxyStack(core.Stack):
             handler="create_secure_proxy.lambda_handler",
             role=create_secure_proxy_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(15),
+            timeout=cdk.Duration.minutes(15),
             dead_letter_queue=dead_letter_queue
         )
 
@@ -988,7 +988,7 @@ class SecureProxyStack(core.Stack):
 
         create_mock_servers_asg_role.add_to_policy(iam.PolicyStatement(
             resources=[
-                f"arn:aws:autoscaling:{self.region}:{self.account}:launchConfiguration:*:launchConfigurationName/*"
+                "*"
             ],
             actions=[
                 "autoscaling:CreateLaunchConfiguration"
@@ -1016,7 +1016,8 @@ class SecureProxyStack(core.Stack):
         create_mock_servers_asg_role.add_to_policy(iam.PolicyStatement(
             resources=["*"],
             actions=[
-                "autoscaling:DescribeAutoScalingGroups"
+                "autoscaling:DescribeAutoScalingGroups",
+                "ec2:Describe*"
             ]
         ))
 
@@ -1044,7 +1045,8 @@ class SecureProxyStack(core.Stack):
             effect=iam.Effect.ALLOW,
             resources=[f"arn:aws:iam::{self.account}:role/*"],
             actions=[
-                "iam:PassRole"
+                "iam:PassRole",
+                "iam:CreateServiceLinkedRole"
             ]
         ))
 
@@ -1055,7 +1057,7 @@ class SecureProxyStack(core.Stack):
             handler="create_mock_servers_asg.lambda_handler",
             role=create_mock_servers_asg_role,
             runtime=_lambda.Runtime.PYTHON_3_9,
-            timeout=core.Duration.minutes(15),
+            timeout=cdk.Duration.minutes(15),
             dead_letter_queue=dead_letter_queue
         )
 
@@ -1073,7 +1075,7 @@ class SecureProxyStack(core.Stack):
             retention=logs.RetentionDays.TWO_WEEKS,
             encryption_key=secure_proxy_kms_key,
             log_group_name=f'/aws/vendedlogs/states/secureproxy',
-            removal_policy=core.RemovalPolicy.DESTROY
+            removal_policy=cdk.RemovalPolicy.DESTROY
         )
 
         entry_point_step_01 = stepfunctions_tasks.LambdaInvoke(
@@ -1116,7 +1118,7 @@ class SecureProxyStack(core.Stack):
         poll_ami_status_step_02_wait = stepfunctions.Wait(
             self,
             "Wait to recheck AMI statuses are AVAILABLE",
-            time=stepfunctions.WaitTime.duration(core.Duration.minutes(3))
+            time=stepfunctions.WaitTime.duration(cdk.Duration.minutes(3))
         )
 
         get_ami_details_step_03 = stepfunctions_tasks.LambdaInvoke(
@@ -1210,7 +1212,7 @@ class SecureProxyStack(core.Stack):
         secure_proxy_state_machine = stepfunctions.StateMachine(
             self, 
             "secure-proxy-state-machine",
-            timeout=core.Duration.hours(3),
+            timeout=cdk.Duration.hours(3),
             definition=entry_point_step_01.next(entry_point_step_01_result_choice),
             logs=stepfunctions.LogOptions(
                 destination=secure_proxy_logs_group,
@@ -1233,14 +1235,14 @@ class SecureProxyStack(core.Stack):
             self, "secure-proxy-pipeline-arn-ssm",
             parameter_name=f'/{secure_proxy_ssm_prefix}/secure-proxy-pipeline-arn',
             string_value=secure_proxy_pipeline.attr_arn,
-            description="Secure Proxy EC2 ImageBuilder Pipeline Arn"
+            description="Secure Proxy EC2 ImageBuilder Pipeline cdk.Arn"
         )
 
         ssm.StringParameter(
             self, "mock-servers-pipeline-arn-ssm",
             parameter_name=f'/{secure_proxy_ssm_prefix}/mock-servers-pipeline-arn',
             string_value=mock_servers_pipeline.attr_arn,
-            description="Mock Servers EC2 ImageBuilder Pipeline Arn"
+            description="Mock Servers EC2 ImageBuilder Pipeline cdk.Arn"
         )
 
         ssm.StringParameter(
@@ -1350,117 +1352,124 @@ class SecureProxyStack(core.Stack):
         ## <START> CDK Outputs
         ##################################################
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-pipeline-arn-output", 
             value=secure_proxy_pipeline.attr_arn,
-            description="Secure Proxy EC2 ImageBuilder Pipeline Arn"
+            description="Secure Proxy EC2 ImageBuilder Pipeline cdk.Arn"
         ).override_logical_id("secureProxyPipelineArn")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="mock-servers-pipeline-arn-output", 
             value=mock_servers_pipeline.attr_arn,
-            description="Mock Servers EC2 ImageBuilder Pipeline Arn"
+            description="Mock Servers EC2 ImageBuilder Pipeline cdk.Arn"
         ).override_logical_id("mockServersPipelineArn")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-nlb-dns-name-output", 
             value=mock_servers_pipeline.attr_arn,
             description="Secure Proxy NLB DNS Name"
         ).override_logical_id("secureProxyNlbDnsName")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-vpc-id-output", 
             value=mock_servers_pipeline.attr_arn,
             description="Secure Proxy VPC Id"
         ).override_logical_id("secureProxyVpcId")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-elb-security-group-output", 
             value=nlb_traffic_sg.security_group_id,
             description="NLB Traffic Security Group Id"
         ).override_logical_id("secureProxyElbSecurityGroup")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-elb-arn-output", 
             value=secure_proxy_elb.load_balancer_arn,
             description="NLB ARN"
         ).override_logical_id("secureProxyElbArn")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-elb-wss-port-output", 
             value=str(wss_nlb_port),
             description="NLB WSS Traffic Port"
         ).override_logical_id("secureProxyElbWssPort")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-elb-oauth-port-output", 
             value=str(oauth_nlb_port),
             description="NLB OAuth Traffic Port"
         ).override_logical_id("secureProxyElbOauthPort")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-ec2-instance-profile-arn-output", 
             value=secure_proxy_ec2_instance_profile.attr_arn,
             description="Secure Proxy EC2 Instance Profile ARN"
         ).override_logical_id("secureProxyEc2InstanceProfileArn")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-vpc-public-subnet-id-output", 
             value=secure_proxy_vpc.public_subnets[0].subnet_id,
             description="Secure Proxy VPC Public Subnet Id"
         ).override_logical_id("secureProxyVpcPublicSubnetId")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-vpc-private-subnet-id-output", 
             value=secure_proxy_vpc.private_subnets[0].subnet_id,
             description="Secure Proxy VPC Private Subnet Id"
         ).override_logical_id("secureProxyVpcPrivateSubnetId")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-security-group-id-output", 
             value=secure_proxy_sg.security_group_id,
             description="Secure Proxy Security Group Id"
         ).override_logical_id("secureProxySecurityGroupId")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="mock-servers-security-group-id-output", 
             value=nlb_traffic_sg.security_group_id,
             description="Mock Servers Security Group Id"
         ).override_logical_id("mockServersSecurityGroupId")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-state-machine-arn-output", 
             value=secure_proxy_state_machine.state_machine_arn,
             description="Secure Proxy State Machine ARN"
         ).override_logical_id("secureProxyStateMachineArn")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-wss-bind-port-output", 
             value=str(config["proxySettings"]["wssProxyBindPort"]),
             description="Secure Proxy WSS Bind Port"
         ).override_logical_id("secureProxyWssBindPort")
 
-        core.CfnOutput(
+        cdk.CfnOutput(
             self, 
             id="secure-proxy-oauth-bind-port-output", 
             value=str(config["proxySettings"]["oAuthProxyBindPort"]),
             description="Secure Proxy oAuth Bind Port"
         ).override_logical_id("secureProxyOauthBindPort")
+
+        cdk.CfnOutput(
+            self, 
+            id="secure-proxy-ec2-role-output",
+            value=secure_proxy_ec2_role.role_name,
+            description="Secure Proxy EC2 Role Name"
+        ).override_logical_id("secureProxyEc2RoleName")
         
         ##################################################
         ## </END> CDK Outputs

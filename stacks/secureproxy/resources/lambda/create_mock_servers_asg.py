@@ -1,14 +1,13 @@
-import boto3
-import botocore
 import json
 import logging
 import traceback
-import time
+
+import boto3
 
 # constants
 OPERATOR = "CREATE_MOCK_SERVERS_ASG"
 MOCK_SERVERS_LAUNCH_CONFIG_NAME = "mock-servers-launch-config"
-MOCK_SERVERS_AUTO_SCALING_GROUP_NAME = "mock-servers-auto-scaling-group"
+MOCK_SERVERS_AUTO_SCALING_GROUP_NAME = "mock-servers-asg"
 MOCK_SERVERS_WSS_TARGET_GROUP = "mock-servers-wss-target-group"
 MOCK_SERVERS_OAUTH_TARGET_GROUP = "mock-servers-oauth-target-group"
 
@@ -16,6 +15,7 @@ MOCK_SERVERS_OAUTH_TARGET_GROUP = "mock-servers-oauth-target-group"
 autoscale_client = boto3.client('autoscaling')
 elbv2_client = boto3.client('elbv2')
 ssm_client = boto3.client('ssm')
+iam_client = boto3.client('iam')
 
 # set logging
 logger = logging.getLogger()

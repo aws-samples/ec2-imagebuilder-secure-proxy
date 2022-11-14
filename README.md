@@ -201,7 +201,7 @@ source .venv/bin/activate
 # install dependant libraries
 python3 -m pip install -r requirements.txt
 
-cdk synth && python3 -m pytest -v -c ./tests/pytest.ini
+cdk synth && python3 -m pytest
 ```
 
 # Executing static code analysis tool

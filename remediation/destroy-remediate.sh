@@ -42,10 +42,14 @@ SSM_SECPROXY_PUBLIC_IP_KEY="${SSM_PREFIX}/secure-proxy-public-ip"
 SSM_LAUNCH_CONFIG_NAME_KEY="${SSM_PREFIX}/mock-servers-asg-launch-config-name"
 SSM_WSS_TARGETGROUP_ARN_KEY="${SSM_PREFIX}/mock-servers-wss-target-group-arn"
 SSM_OAUTH_TARGETGROUP_ARN_KEY="${SSM_PREFIX}/mock-servers-oauth-target-group-arn"
+SSM_WSS_TARGETGROUP_2_ARN_KEY="${SSM_PREFIX}/mock-servers-wss-target-group-2-arn"
+SSM_OAUTH_TARGETGROUP_2_ARN_KEY="${SSM_PREFIX}/mock-servers-oauth-target-group-2-arn"
 SSM_AUTOSCALING_GROUP_NAME_KEY="${SSM_PREFIX}/mock-servers-asg-name"
 SSM_AUTOSCALING_GROUP_ARN_KEY="${SSM_PREFIX}/mock-servers-asg-arn"
 SSM_WSS_LISTENER_ARN_KEY="${SSM_PREFIX}/secure-proxy-elb-wss-listener-arn"
-SSM_OAUTH_LISTENER_ARN_KEY="${SSM_PREFIX}/secure-proxy-elb-oauth-listener-arn"
+SSM_WSS_LISTENER_2_ARN_KEY="${SSM_PREFIX}/secure-proxy-elb-wss-listener-arn"
+SSM_OAUTH_LISTENER_ARN_KEY="${SSM_PREFIX}/secure-proxy-elb-oauth-listener-2-arn"
+SSM_OAUTH_LISTENER_2_ARN_KEY="${SSM_PREFIX}/secure-proxy-elb-oauth-listener-2-arn"
 
 ### DYNAMIC RESOURCE VALUES ###
 SECPROXY_INSTANCE_ID=$(aws ssm get-parameter --name "${SSM_SECPROXY_INSTANCE_ID_KEY}" --output text --query "Parameter.Value")
@@ -93,11 +97,23 @@ aws elbv2 delete-listener --listener-arn ${WSS_LISTENER_ARN}
 echo "Deleting oauth_listener: ${OAUTH_LISTENER_ARN}"
 aws elbv2 delete-listener --listener-arn ${OAUTH_LISTENER_ARN}
 
+echo "Deleting wss_listener 2: ${WSS_LISTENER_2_ARN}"
+aws elbv2 delete-listener --listener-arn ${WSS_LISTENER_2_ARN}
+
+echo "Deleting oauth_listener 2: ${OAUTH_LISTENER_2_ARN}"
+aws elbv2 delete-listener --listener-arn ${OAUTH_LISTENER_2_ARN}
+
 echo "Deleting wss_targetgroup: ${WSS_TARGETGROUP_ARN}"
 aws elbv2 delete-target-group --target-group-arn ${WSS_TARGETGROUP_ARN}
 
 echo "Deleting oauth_targetgroup: ${OAUTH_TARGETGROUP_ARN}"
 aws elbv2 delete-target-group --target-group-arn ${OAUTH_TARGETGROUP_ARN}
+
+echo "Deleting wss_targetgroup 2: ${WSS_TARGETGROUP_2_ARN}"
+aws elbv2 delete-target-group --target-group-arn ${WSS_TARGETGROUP_2_ARN}
+
+echo "Deleting oauth_targetgroup 2: ${OAUTH_TARGETGROUP_2_ARN}"
+aws elbv2 delete-target-group --target-group-arn ${OAUTH_TARGETGROUP_2_ARN}
 
 echo "Removing instances from autoscaling_group: ${AUTO_SCALING_GROUP_NAME}"
 aws autoscaling update-auto-scaling-group --auto-scaling-group-name ${AUTO_SCALING_GROUP_NAME} --min-size 0 --desired-capacity 0
@@ -117,25 +133,18 @@ aws ssm delete-parameter --name ${SSM_SECPROXY_PUBLIC_IP_KEY}
 aws ssm delete-parameter --name ${SSM_LAUNCH_CONFIG_NAME_KEY}
 aws ssm delete-parameter --name ${SSM_WSS_TARGETGROUP_ARN_KEY}
 aws ssm delete-parameter --name ${SSM_OAUTH_TARGETGROUP_ARN_KEY}
+aws ssm delete-parameter --name ${SSM_WSS_TARGETGROUP_2_ARN_KEY}
+aws ssm delete-parameter --name ${SSM_OAUTH_TARGETGROUP_2_ARN_KEY}
 aws ssm delete-parameter --name ${SSM_AUTOSCALING_GROUP_NAME_KEY}
 aws ssm delete-parameter --name ${SSM_AUTOSCALING_GROUP_ARN_KEY}
 aws ssm delete-parameter --name ${SSM_WSS_LISTENER_ARN_KEY}
 aws ssm delete-parameter --name ${SSM_OAUTH_LISTENER_ARN_KEY}
+aws ssm delete-parameter --name ${SSM_WSS_LISTENER_2_ARN_KEY}
+aws ssm delete-parameter --name ${SSM_OAUTH_LISTENER_2_ARN_KEY}
 
 echo ""
 echo "</END> DELETING DYNAMIC RESOURCE VALUES"
 echo ""
-
-EC2_ROLE_ARN=$(aws cloudformation describe-stacks \
-                  --region ${AWS_DEFAULT_REGION} \
-                  --stack-name EC2ImageBuilderSecureProxy \
-                  --output text \
-                  --query "Stacks[0].Outputs[?OutputKey=='secureProxyEc2RoleName'].OutputValue")
-
-# detach the AmazonSSMManagedInstanceCore from the secure proxy ec2 role
-aws iam detach-role-policy \
-      --role-name "${EC2_ROLE_ARN}" \
-      --policy-arn "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 
 echo "<START> EXECUTING CDK DESTROY"
 echo ""
