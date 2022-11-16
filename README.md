@@ -86,7 +86,10 @@ The solution code uses the Python flavour of the AWS CDK ([Cloud Development Kit
 
 Additionally, the project assumes:
 
-* configuration of [AWS CLI Environment Variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html).
+* configuration of [AWS CLI Environment Variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html). The following environment variables must be set:
+  * `AWS_ACCESS_KEY_ID`
+  * `AWS_SECRET_ACCESS_KEY`
+  * `AWS_DEFAULT_REGION`
 * the availability of a `bash` (or compatible) shell environment.
 
 The solution code requires that the AWS account is [bootstrapped](https://docs.aws.amazon.com/de_de/cdk/latest/guide/bootstrapping.html) in order to allow the deployment of the CDK stack.
