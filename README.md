@@ -94,6 +94,9 @@ Additionally, the project assumes:
   * `AWS_ACCESS_KEY_ID`
   * `AWS_SECRET_ACCESS_KEY`
   * `AWS_DEFAULT_REGION`
+  * `CDK_DEFAULT_REGION`
+
+In addition to the environment variables referenced in [How to set environment variables](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html#envvars-set), you will also need to set an environment variable for `CDK_DEFAULT_REGION` which should have the same value as the `AWS_DEFAULT_REGION` environment variable.
 
 The solution code requires that the AWS account is [bootstrapped](https://docs.aws.amazon.com/de_de/cdk/latest/guide/bootstrapping.html) in order to allow the deployment of the CDK stack.
 
@@ -226,18 +229,24 @@ python3 -m pip install -r requirements.txt
 cdk synth && checkov --config-file checkov.yaml
 ```
 
-**NOTE:** The Checkov tool has been configured to skip 2 checks.
+**NOTE:** The Checkov tool has been configured to skip the following checks.
 
 The Checkov configuration file, [checkov.yaml](checkov.yaml), contains a section named `skip-check`.
 
 ```
 skip-check:
   - CKV_AWS_18    # Ensure the S3 bucket has access logging enabled
+  - CKV_AWS_111   # Ensure IAM policies does not allow write access without constraints
+  - CKV_AWS_115   # Ensure that AWS Lambda function is configured for function-level concurrent execution limit
   - CKV_AWS_116   # Ensure that AWS Lambda function is configured for a Dead Letter Queue(DLQ)
+  - CKV_AWS_117   # Ensure that AWS Lambda function is configured inside a VPC
 ```
 
-* Check `CKV_AWS_18` has been skipped due to an infinite dependency issue. The solution defines an S3 bucket that is used for NLB access logs. In order to comply with this rule, the S3 bucket needs to have [server access logging enabled](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enable-server-access-logging.html). To enable server access logging, another S3 bucket is required as the destination for the server access logs. The destination bucket also needs to have server access logging enabled to comply with the rule which creates an infinite dependency issue.
+* Check `CKV_AWS_18` has been skipped due to an circular dependency issue. The solution defines an S3 bucket that is used for NLB access logs. In order to comply with this rule, the S3 bucket needs to have [server access logging enabled](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enable-server-access-logging.html). To enable server access logging, another S3 bucket is required as the destination for the server access logs. The destination bucket also needs to have server access logging enabled to comply with the rule which creates an circular dependency issue.
+* Check `CKV_AWS_111` should be resolved in a production environment but it is considered beyond the scope of this project.
+* Check `CKV_AWS_113` is skipped as configuring the AWS Lambda with a function-level concurrent execution limit not a requirement for this project.
 * Check `CKV_AWS_116` fails due to the `CustomS3AutoDeleteObjectsCustomResourceProviderHandler` lambda function which is created by the CDK framework as part of the [aws_s3.Bucket](https://docs.aws.amazon.com/cdk/api/v1/docs/@aws-cdk_aws-s3.Bucket.html) construct. This lambda function does not have a Dead Letter Queue defined. As this is a resource created by the CDK framework, this check is skipped.
+* Check `CKV_AWS_117` is skipped as configuring the AWS Lambda inside a VPC is not a requirement for this project.
 
 # Secure Proxy NGINX component
 
