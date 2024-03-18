@@ -86,7 +86,7 @@ tqdm==4.64.1
 typeguard==2.13.3
 typing_extensions==4.4.0
 update-checker==0.18.0
-urllib3==1.26.12
+urllib3==1.26.18
 wcwidth==0.2.5
 websocket-client==1.4.2
 yarl==1.8.1
